@@ -656,12 +656,6 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
             </div>
           </div>
         )}
-                <div className="w-2 h-2 rounded-full bg-sky-500 animate-bounce delay-100"></div>
-                <div className="w-2 h-2 rounded-full bg-sky-600 animate-bounce delay-200"></div>
-              </div>
-            </div>
-          </div>
-        )}
 
         <div ref={chatEndRef} />
       </div>
