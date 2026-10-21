@@ -10,7 +10,7 @@ import {
   Presentation
 } from 'lucide-react';
 import { GradeLevel } from '../types';
-import { generateLessonSlides, exportPresentationHtml, SlideData } from '../utils/exportPptx';
+import { generateLessonSlides, exportPresentationHtml, type SlideData } from '../utils/exportPptx';
 import { playClickPop } from '../utils/audio';
 
 interface SlideViewerModalProps {

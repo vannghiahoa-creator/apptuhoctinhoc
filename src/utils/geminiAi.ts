@@ -47,7 +47,10 @@ export const STORAGE_KEYS = {
 
 export function getStoredApiKey(): string {
   try {
-    return (localStorage.getItem(STORAGE_KEYS.API_KEY) || '').trim();
+    const fromStorage = (localStorage.getItem(STORAGE_KEYS.API_KEY) || '').trim();
+    if (fromStorage) return fromStorage;
+    const fromEnv = (import.meta.env.VITE_GEMINI_API_KEY || '').trim();
+    return fromEnv;
   } catch {
     return '';
   }

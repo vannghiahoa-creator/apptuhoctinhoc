@@ -43,7 +43,7 @@ import { exportStudentAssessmentDocx, exportClassSummaryDocx, exportLessonPlanDo
 import { CompetencyRadarChart } from './CompetencyRadarChart';
 import { SlideViewerModal } from './SlideViewerModal';
 
-export { type AssessmentRecord } from '../types';
+export type { AssessmentRecord } from '../types';
 
 interface TeacherDashboardProps {
   currentGrade: GradeLevel;
