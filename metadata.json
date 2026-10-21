@@ -1,0 +1,6 @@
+{
+  "name": "NUTA - Trợ lý AI Phát triển Tư duy Tin học Tiểu học",
+  "description": "Ứng dụng trợ lý AI Robot NUTA đồng hành cùng học sinh tiểu học (Lớp 1-5) phát triển tư duy Tin học, lập trình Scratch, an toàn số và phương pháp gợi mở Socratic.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
