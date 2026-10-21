@@ -753,5 +753,6 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
         </div>
       </div>
     </div>
+  </div>
   );
 };
