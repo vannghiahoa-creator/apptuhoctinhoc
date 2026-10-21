@@ -14,13 +14,13 @@ import {
   ChevronDown,
   Key
 } from 'lucide-react';
-import { GradeLevel, TeacherMetadata, Student, GoogleSheetConfig } from './types';
+import { GradeLevel, TeacherMetadata, Student, GoogleSheetConfig, AssessmentRecord } from './types';
 import { NutaAvatar } from './components/NutaAvatar';
 import { SocraticChat } from './components/SocraticChat';
 import { ScratchPlayground } from './components/ScratchPlayground';
 import { SafetyQuest } from './components/SafetyQuest';
 import { ComputerLab } from './components/ComputerLab';
-import { TeacherDashboard, AssessmentRecord } from './components/TeacherDashboard';
+import { TeacherDashboard } from './components/TeacherDashboard';
 import { StudentSelectorModal } from './components/StudentSelectorModal';
 import { ApiKeySettingsModal } from './components/ApiKeySettingsModal';
 import { getStoredApiKey } from './utils/geminiAi';
