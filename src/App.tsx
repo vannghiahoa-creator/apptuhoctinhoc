@@ -482,6 +482,15 @@ export default function App() {
         onOpenTeacherDashboard={() => setActiveTab('teacher')}
         isSyncing={isSyncingSheet}
         onSyncFromSheet={handleSyncSheet}
+        sheetConfig={sheetConfig}
+        onUpdateStudents={(newStudents) => {
+          setStudents(newStudents);
+          saveStudents(newStudents);
+        }}
+        onUpdateSheetConfig={(newConfig) => {
+          setSheetConfig(newConfig);
+          saveSheetConfig(newConfig);
+        }}
       />
 
       {/* API Key & Model Settings Modal (Theo AI_INSTRUCTIONS.md) */}

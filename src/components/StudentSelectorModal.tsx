@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   User,
   Search,
@@ -10,10 +10,16 @@ import {
   RefreshCw,
   FileSpreadsheet,
   ArrowRight,
-  UserCheck
+  UserCheck,
+  Link2,
+  ExternalLink,
+  AlertCircle,
+  PlusCircle,
+  Check
 } from 'lucide-react';
-import { GradeLevel, Student } from '../types';
+import { GradeLevel, Student, GoogleSheetConfig } from '../types';
 import { playClickPop, playSuccessChime } from '../utils/audio';
+import { fetchStudentsFromGoogleSheet, saveStudents, saveSheetConfig } from '../utils/googleSheets';
 
 interface StudentSelectorModalProps {
   isOpen: boolean;
@@ -24,6 +30,9 @@ interface StudentSelectorModalProps {
   onOpenTeacherDashboard?: () => void;
   isSyncing?: boolean;
   onSyncFromSheet?: () => void;
+  sheetConfig?: GoogleSheetConfig;
+  onUpdateStudents?: (students: Student[]) => void;
+  onUpdateSheetConfig?: (config: GoogleSheetConfig) => void;
 }
 
 export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
@@ -35,10 +44,28 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
   onOpenTeacherDashboard,
   isSyncing = false,
   onSyncFromSheet,
+  sheetConfig,
+  onUpdateStudents,
+  onUpdateSheetConfig,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
   const [quickCodeInput, setQuickCodeInput] = useState('');
+  const [showSheetConnect, setShowSheetConnect] = useState(false);
+  const [sheetUrlInput, setSheetUrlInput] = useState(sheetConfig?.sheetUrl || '');
+  const [sheetNameInput, setSheetNameInput] = useState(sheetConfig?.sheetName || '');
+  const [isSyncingLocal, setIsSyncingLocal] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [unfoundCode, setUnfoundCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (sheetConfig?.sheetUrl) {
+      setSheetUrlInput(sheetConfig.sheetUrl);
+    }
+    if (sheetConfig?.sheetName) {
+      setSheetNameInput(sheetConfig.sheetName);
+    }
+  }, [sheetConfig]);
 
   if (!isOpen) return null;
 
@@ -57,23 +84,67 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
     });
   }, [students, selectedGrade, searchTerm]);
 
+  // Find student by code with smart loose matching (HS001, hs1, 1, 01...)
+  const findStudentByCode = (rawInput: string): Student | undefined => {
+    const term = rawInput.trim().toLowerCase();
+    const termNum = parseInt(term.replace(/[^0-9]/g, ''), 10);
+
+    return students.find((s) => {
+      const sId = s.id.toLowerCase();
+      const sClean = sId.replace(/[^0-9a-z]/g, '');
+
+      // 1. Exact match
+      if (sId === term || sClean === term) return true;
+
+      // 2. Numeric match (e.g. user typed "1" -> matches "HS001" or "01")
+      if (!isNaN(termNum) && termNum > 0) {
+        const sNum = parseInt(sId.replace(/[^0-9]/g, ''), 10);
+        if (sNum === termNum) return true;
+      }
+
+      // 3. Name match
+      if (s.name.toLowerCase() === term) return true;
+
+      return false;
+    });
+  };
+
   // Handle quick code submit
   const handleQuickCodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setUnfoundCode(null);
     if (!quickCodeInput.trim()) return;
 
-    const term = quickCodeInput.trim().toLowerCase();
-    const found = students.find(
-      (s) => s.id.toLowerCase() === term || s.id.toLowerCase().replace(/[^0-9a-z]/g, '') === term
-    );
+    const found = findStudentByCode(quickCodeInput);
 
     if (found) {
       playSuccessChime();
       onSelectStudent(found);
       onClose();
     } else {
-      alert(`Không tìm thấy mã học sinh "${quickCodeInput}". Bạn hãy kiểm tra lại hoặc tìm kiếm theo tên nhé!`);
+      setUnfoundCode(quickCodeInput.trim().toUpperCase());
     }
+  };
+
+  // Allow entering with a new ID if not present in the list
+  const handleCreateAndJoin = (code: string) => {
+    const newStudent: Student = {
+      id: code,
+      name: `Học sinh ${code}`,
+      grade: 'Lớp 3',
+      className: 'Lớp Tin học',
+      stars: 12,
+    };
+
+    const updated = [newStudent, ...students.filter((s) => s.id !== code)];
+    if (onUpdateStudents) {
+      onUpdateStudents(updated);
+    }
+    saveStudents(updated);
+
+    playSuccessChime();
+    onSelectStudent(newStudent);
+    onClose();
   };
 
   const handleSelect = (student: Student) => {
@@ -88,9 +159,62 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
     onClose();
   };
 
+  // Direct sync from Google Sheet right inside the modal
+  const handleDirectSync = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!sheetUrlInput.trim()) {
+      setSyncStatus({ type: 'error', message: 'Vui lòng dán đường link Google Sheet của bạn vào ô.' });
+      return;
+    }
+
+    setIsSyncingLocal(true);
+    setSyncStatus({ type: 'info', message: 'Đang kết nối Google Sheets qua giao thức GViz/JSONP an toàn...' });
+
+    try {
+      const res = await fetchStudentsFromGoogleSheet(sheetUrlInput.trim(), sheetNameInput.trim());
+
+      if (res.students && res.students.length > 0) {
+        if (onUpdateStudents) {
+          onUpdateStudents(res.students);
+        }
+        saveStudents(res.students);
+
+        const newConfig: GoogleSheetConfig = {
+          sheetUrl: sheetUrlInput.trim(),
+          sheetName: sheetNameInput.trim(),
+          lastSyncTime: Date.now(),
+          status: 'success',
+          autoSync: true,
+        };
+
+        if (onUpdateSheetConfig) {
+          onUpdateSheetConfig(newConfig);
+        }
+        saveSheetConfig(newConfig);
+
+        playSuccessChime();
+        setSyncStatus({
+          type: 'success',
+          message: `Đồng bộ thành công ${res.students.length} học sinh từ Google Sheet! 🎉`,
+        });
+        setUnfoundCode(null);
+      } else {
+        throw new Error('Không tìm thấy dòng học sinh hợp lệ nào trong bảng tính.');
+      }
+    } catch (err: any) {
+      console.error('Direct Sheet sync failed:', err);
+      setSyncStatus({
+        type: 'error',
+        message: err?.message || 'Không thể đồng bộ. Hãy chắc chắn bảng tính đã được mở quyền xem công khai (Bất kỳ ai có liên kết -> Người xem).',
+      });
+    } finally {
+      setIsSyncingLocal(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
-      <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-100 bg-gradient-to-r from-sky-500 via-indigo-500 to-sky-600 text-white relative">
           <div className="flex items-center justify-between">
@@ -129,25 +253,140 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
               <input
                 type="text"
                 value={quickCodeInput}
-                onChange={(e) => setQuickCodeInput(e.target.value)}
-                placeholder="Nhập nhanh Mã HS (VD: HS001, HS002...)"
-                className="w-full bg-white text-slate-800 placeholder-slate-400 font-bold text-xs sm:text-sm pl-9 pr-3 py-2 rounded-xl border border-white/30 focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-xs"
+                onChange={(e) => {
+                  setQuickCodeInput(e.target.value);
+                  if (unfoundCode) setUnfoundCode(null);
+                }}
+                placeholder="Nhập nhanh Mã HS (VD: HS001, 1, 240101...)"
+                className="w-full bg-white text-slate-800 placeholder-slate-400 font-bold text-xs sm:text-sm pl-9 pr-3 py-2.5 rounded-xl border border-white/30 focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-xs"
               />
               <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
             <button
               type="submit"
-              className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-900 font-black text-xs sm:text-sm rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+              className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-900 font-black text-xs sm:text-sm rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
             >
               <span>Vào học</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </form>
+
+          {/* Prompt if code is not found in the roster */}
+          {unfoundCode && (
+            <div className="mt-2.5 p-2.5 bg-amber-50 text-slate-800 rounded-xl border border-amber-300 text-xs flex flex-wrap items-center justify-between gap-2 animate-in fade-in">
+              <div className="flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  Chưa thấy mã <strong>"{unfoundCode}"</strong> trong danh sách hiện tại.
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCreateAndJoin(unfoundCode)}
+                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer text-[11px] flex items-center gap-1 shadow-2xs"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Vào học với mã này</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSheetConnect(true)}
+                  className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200 cursor-pointer text-[11px]"
+                >
+                  Kết nối Google Sheet
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Google Sheet Direct Connector Bar */}
+        <div className="px-4 py-2 bg-indigo-50/80 border-b border-indigo-100 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-indigo-900 font-semibold truncate">
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+            {sheetConfig?.sheetUrl ? (
+              <span className="truncate">
+                Nguồn Sheet: <strong className="font-mono text-indigo-700">{sheetConfig.sheetUrl.slice(0, 45)}...</strong>
+              </span>
+            ) : (
+              <span className="text-slate-600">Chưa gắn link Google Sheet của lớp</span>
+            )}
+          </div>
+          <button
+            onClick={() => {
+              playClickPop();
+              setShowSheetConnect(!showSheetConnect);
+            }}
+            className="text-indigo-700 hover:text-indigo-900 font-bold underline cursor-pointer text-[11px] shrink-0 ml-2"
+          >
+            {showSheetConnect ? 'Thu gọn' : '🔗 Cấu hình / Đổi link Google Sheet'}
+          </button>
+        </div>
+
+        {/* Expandable Google Sheet Connect Form */}
+        {showSheetConnect && (
+          <form onSubmit={handleDirectSync} className="p-3.5 sm:px-4 bg-white border-b border-indigo-200 space-y-2 animate-in fade-in">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                <span>📁 Nhập liên kết Google Sheet để đồng bộ học sinh:</span>
+              </span>
+              <span className="text-[10px] text-slate-400">
+                (Quyền chia sẻ: Bất kỳ ai có liên kết ➔ Người xem)
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={sheetUrlInput}
+                onChange={(e) => setSheetUrlInput(e.target.value)}
+                placeholder="Dán link Google Sheet (https://docs.google.com/spreadsheets/d/...)"
+                className="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <input
+                type="text"
+                value={sheetNameInput}
+                onChange={(e) => setSheetNameInput(e.target.value)}
+                placeholder="Tên sheet (Tùy chọn)"
+                className="w-full sm:w-32 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <button
+                type="submit"
+                disabled={isSyncingLocal}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-xs cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingLocal ? 'animate-spin' : ''}`} />
+                <span>{isSyncingLocal ? 'Đang tải...' : 'Đồng bộ ngay'}</span>
+              </button>
+            </div>
+
+            {syncStatus && (
+              <div
+                className={`p-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                  syncStatus.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : syncStatus.type === 'error'
+                    ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                    : 'bg-sky-50 text-sky-800 border border-sky-200'
+                }`}
+              >
+                {syncStatus.type === 'success' ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                ) : syncStatus.type === 'error' ? (
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5 text-sky-600 animate-spin shrink-0" />
+                )}
+                <span>{syncStatus.message}</span>
+              </div>
+            )}
+          </form>
+        )}
 
         {/* Currently Logged In Banner */}
         {currentStudent ? (
-          <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between text-xs">
+          <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
               <span className="flex h-2.5 w-2.5 relative">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -213,7 +452,7 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
         </div>
 
         {/* Student Cards List */}
-        <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-2 max-h-[50vh]">
+        <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-2 max-h-[48vh]">
           {filteredStudents.length === 0 ? (
             <div className="text-center py-10 space-y-3">
               <div className="text-3xl">🔍</div>
@@ -221,7 +460,7 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
                 Không tìm thấy học sinh nào phù hợp với "{searchTerm}"
               </p>
               <p className="text-xs text-slate-400">
-                Thử tìm lại bằng Mã HS hoặc kiểm tra kết nối với Google Sheet của lớp.
+                Thử tìm lại bằng Mã HS hoặc dán link Google Sheet để đồng bộ danh sách lớp của bạn.
               </p>
             </div>
           ) : (
@@ -301,12 +540,12 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
             {onSyncFromSheet && (
               <button
                 onClick={onSyncFromSheet}
-                disabled={isSyncing}
+                disabled={isSyncing || isSyncingLocal}
                 className="flex items-center gap-1 text-sky-600 hover:text-sky-700 font-bold ml-1 cursor-pointer disabled:opacity-50"
                 title="Đồng bộ lại từ Google Sheet"
               >
-                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'Đang đồng bộ...' : 'Tải lại'}</span>
+                <RefreshCw className={`w-3 h-3 ${isSyncing || isSyncingLocal ? 'animate-spin' : ''}`} />
+                <span>{isSyncing || isSyncingLocal ? 'Đang đồng bộ...' : 'Tải lại'}</span>
               </button>
             )}
           </div>

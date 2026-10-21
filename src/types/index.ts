@@ -34,6 +34,8 @@ export interface GoogleSheetConfig {
   sheetName?: string;
   lastSyncTime?: number;
   autoSync?: boolean;
+  status?: 'idle' | 'success' | 'error';
+  errorMessage?: string;
 }
 
 export interface AssessmentRecord {
