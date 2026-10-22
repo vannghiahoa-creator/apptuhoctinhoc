@@ -318,12 +318,12 @@ export default function App() {
                   playClickPop();
                   setShowStudentModal(true);
                 }}
-                className="flex items-center gap-1.5 bg-sky-50 border border-sky-300 text-sky-800 font-black text-xs px-2.5 py-1.5 rounded-xl shadow-2xs hover:bg-sky-100 transition-all cursor-pointer"
-                title="Đăng nhập hoặc chọn Mã học sinh từ Google Sheet"
+                className="flex items-center gap-1.5 bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-300 text-sky-900 font-black text-xs px-2.5 py-1.5 rounded-xl shadow-2xs hover:bg-sky-100 transition-all cursor-pointer"
+                title="Bấm để chọn tên hoặc mã học sinh vào học"
               >
                 <GraduationCap className="w-3.5 h-3.5 text-sky-600" />
-                <span className="hidden sm:inline">Mã HS</span>
-                <span className="bg-sky-500 text-white text-[9px] px-1 py-0.2 rounded font-black uppercase">Sheet</span>
+                <span className="hidden sm:inline">Chọn Tên / Mã HS</span>
+                <span className="bg-sky-500 text-white text-[9px] px-1 py-0.2 rounded font-black uppercase">Vào học</span>
               </button>
             )}
 

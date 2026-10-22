@@ -356,11 +356,12 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
                   playClickPop();
                   if (onOpenStudentModal) onOpenStudentModal();
                 }}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-300 text-sky-800 font-bold text-xs transition-colors cursor-pointer"
-                title="Đăng nhập hoặc chọn Mã HS từ Google Sheet"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-50 to-indigo-50 hover:from-sky-100 hover:to-indigo-100 border border-sky-300 text-sky-900 font-black text-xs transition-all cursor-pointer shadow-2xs hover:shadow-xs group"
+                title="Bấm để chọn tên hoặc số thứ tự của em để vào học cùng NUTA"
               >
-                <span>🎓</span>
-                <span>Chọn Mã HS</span>
+                <span className="text-sm group-hover:scale-110 transition-transform">🎓</span>
+                <span>Chọn Tên / Mã HS</span>
+                <span className="bg-sky-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black uppercase tracking-wider">Vào học</span>
               </button>
             )}
 
