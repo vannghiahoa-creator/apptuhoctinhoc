@@ -27,7 +27,8 @@ import {
   FileText,
   Code,
   Copy,
-  X
+  X,
+  ClipboardPaste
 } from 'lucide-react';
 import { GradeLevel, Student, GoogleSheetConfig, AssessmentRecord } from '../types';
 import { playClickPop, playSuccessChime } from '../utils/audio';
@@ -36,6 +37,7 @@ import {
   saveStudents,
   saveSheetConfig,
   exportRosterToCsv,
+  parseRawClipboardOrText,
   SAMPLE_GOOGLE_SHEET_URL,
   DEFAULT_STUDENTS_ROSTER,
 } from '../utils/googleSheets';
@@ -140,6 +142,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // State for Google Sheet Connection
   const [sheetUrlInput, setSheetUrlInput] = useState<string>(googleSheetConfig.sheetUrl || '');
   const [sheetNameInput, setSheetNameInput] = useState<string>(googleSheetConfig.sheetName || '');
+  const [sheetConnectMode, setSheetConnectMode] = useState<'link' | 'paste'>('link');
+  const [clipboardData, setClipboardData] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [showGuide, setShowGuide] = useState<boolean>(false);
@@ -250,6 +254,38 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       }
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  // Handle Direct Paste from Google Sheet or Excel (Ctrl+V)
+  const handleDirectPasteRoster = () => {
+    if (!clipboardData.trim()) {
+      setSyncMessage({
+        type: 'error',
+        text: 'Vui lòng dán dữ liệu bảng tính đã copy (Ctrl+V) vào khung bên dưới.',
+      });
+      return;
+    }
+
+    try {
+      const parsed = parseRawClipboardOrText(clipboardData);
+      if (parsed.length === 0) {
+        throw new Error('Chưa nhận diện được danh sách học sinh. Hãy đảm bảo bôi đen cả hàng tiêu đề (Mã HS, Họ tên, Lớp...).');
+      }
+
+      if (onUpdateStudents) onUpdateStudents(parsed);
+      saveStudents(parsed);
+      playSuccessChime();
+      setSyncMessage({
+        type: 'success',
+        text: `Đã dán và nhập thành công ${parsed.length} học sinh từ bảng tính vào NUTA! 🎉`,
+      });
+      setClipboardData('');
+    } catch (err: any) {
+      setSyncMessage({
+        type: 'error',
+        text: err?.message || 'Lỗi xử lý bảng dữ liệu dán vào.',
+      });
     }
   };
 
@@ -547,52 +583,106 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </li>
                   </ol>
                   <div className="pt-1 flex items-center gap-2">
-                    <span className="font-bold text-slate-600">Bảng tính mẫu tham khảo:</span>
+                    <span className="font-bold text-slate-600">Trải nghiệm nhanh:</span>
                     <button
-                      onClick={() => {
-                        setSheetUrlInput(SAMPLE_GOOGLE_SHEET_URL);
-                        handleSyncGoogleSheet(SAMPLE_GOOGLE_SHEET_URL);
-                      }}
+                      onClick={handleLoadDemoData}
                       className="text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
                     >
-                      Bấm vào đây để thử kết nối ngay với Sheet mẫu NUTA
+                      Bấm vào đây để nạp 12 học sinh mẫu chuẩn của NUTA
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* URL Input Form */}
-              <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    value={sheetUrlInput}
-                    onChange={(e) => setSheetUrlInput(e.target.value)}
-                    placeholder="Dán đường dẫn Google Sheet (https://docs.google.com/spreadsheets/d/...)"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 font-mono text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                  />
-                </div>
-
-                <div className="w-full sm:w-44">
-                  <input
-                    type="text"
-                    value={sheetNameInput}
-                    onChange={(e) => setSheetNameInput(e.target.value)}
-                    placeholder="Tên trang tính (vd: Sheet1)"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                    title="Nếu bảng tính có nhiều Sheet, hãy điền tên tab tại đây"
-                  />
-                </div>
-
+              {/* Mode Toggle: Link Sync vs Direct Paste */}
+              <div className="flex items-center gap-2 pt-1 border-b border-slate-200 pb-2">
                 <button
-                  onClick={() => handleSyncGoogleSheet()}
-                  disabled={isSyncing}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-xs transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shrink-0"
+                  type="button"
+                  onClick={() => setSheetConnectMode('link')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    sheetConnectMode === 'link'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
                 >
-                  <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ ngay'}</span>
+                  🔗 1. Đồng bộ qua liên kết Google Sheet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSheetConnectMode('paste')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    sheetConnectMode === 'paste'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  <ClipboardPaste className="w-3.5 h-3.5" />
+                  <span>2. Dán trực tiếp từ Google Sheet / Excel (Ctrl+V)</span>
                 </button>
               </div>
+
+              {/* MODE 1: URL Input Form */}
+              {sheetConnectMode === 'link' && (
+                <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      value={sheetUrlInput}
+                      onChange={(e) => setSheetUrlInput(e.target.value)}
+                      placeholder="Dán đường dẫn Google Sheet (https://docs.google.com/spreadsheets/d/...)"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 font-mono text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                    />
+                  </div>
+
+                  <div className="w-full sm:w-44">
+                    <input
+                      type="text"
+                      value={sheetNameInput}
+                      onChange={(e) => setSheetNameInput(e.target.value)}
+                      placeholder="Tên trang tính (vd: Sheet1)"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                      title="Nếu bảng tính có nhiều Sheet, hãy điền tên tab tại đây"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => handleSyncGoogleSheet()}
+                    disabled={isSyncing}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-xs transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shrink-0"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                    <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ ngay'}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* MODE 2: Direct Paste Form */}
+              {sheetConnectMode === 'paste' && (
+                <div className="space-y-2 pt-1">
+                  <div className="text-xs text-slate-600">
+                    💡 <strong>Thao tác:</strong> Bôi đen bảng tính trong Google Sheet hoặc Excel (chọn cả dòng tiêu đề: Mã HS, Họ tên, Lớp...) ➔ Nhấn <strong>Ctrl+C</strong> ➔ Dán vào ô bên dưới ➔ Bấm <strong>Nhập dữ liệu</strong>:
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={clipboardData}
+                    onChange={(e) => setClipboardData(e.target.value)}
+                    placeholder={`Mã HS\tHọ và tên\tLớp\tGiới tính\nHS001\tNguyễn Gia Bảo\t3A\tNam\nHS002\tTrần Minh Quân\t3A\tNam`}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-mono text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">
+                      Phương thức này 100% không cần mở quyền chia sẻ và hoạt động mượt mà cả khi mất mạng internet.
+                    </span>
+                    <button
+                      onClick={handleDirectPasteRoster}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5"
+                    >
+                      <ClipboardPaste className="w-3.5 h-3.5" />
+                      <span>Nhập dữ liệu học sinh</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Status & Feedback message */}
               {syncMessage && (

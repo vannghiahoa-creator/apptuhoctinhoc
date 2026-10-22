@@ -232,13 +232,17 @@ app.post('/api/google-sheet/sync', async (req, res) => {
     let csvUrl = targetUrl;
     const pubMatch = targetUrl.match(/\/spreadsheets\/d\/e\/([a-zA-Z0-9-_]+)/);
     const standardMatch = targetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    const gidMatch = targetUrl.match(/[#?&]gid=([0-9]+)/);
+    const gid = gidMatch ? gidMatch[1] : null;
 
     if (pubMatch && pubMatch[1]) {
-      csvUrl = `https://docs.google.com/spreadsheets/d/e/${pubMatch[1]}/pub?output=csv`;
+      csvUrl = `https://docs.google.com/spreadsheets/d/e/${pubMatch[1]}/pub?output=csv` + (gid ? `&gid=${gid}` : '');
     } else if (standardMatch && standardMatch[1]) {
       csvUrl = `https://docs.google.com/spreadsheets/d/${standardMatch[1]}/gviz/tq?tqx=out:csv`;
       if (sheetName && sheetName.trim()) {
         csvUrl += `&sheet=${encodeURIComponent(sheetName.trim())}`;
+      } else if (gid) {
+        csvUrl += `&gid=${gid}`;
       }
     }
 
@@ -292,38 +296,78 @@ app.post('/api/google-sheet/sync', async (req, res) => {
 
     // Tìm dòng header
     let headerIdx = -1;
-    let idIdx = 0;
-    let nameIdx = 1;
-    let classIdx = 2;
-    let genderIdx = 3;
-    let dobIdx = 4;
-    let noteIdx = 5;
+    let idIdx = -1;
+    let sttIdx = -1;
+    let nameIdx = -1;
+    let hoIdx = -1;
+    let tenIdx = -1;
+    let classIdx = -1;
+    let genderIdx = -1;
+    let dobIdx = -1;
+    let noteIdx = -1;
 
-    for (let r = 0; r < Math.min(parsedRows.length, 5); r++) {
-      const lowerRow = parsedRows[r].map(c => c.toLowerCase());
-      if (lowerRow.some(c => c.includes('mã') || c.includes('id') || c.includes('tên') || c.includes('name'))) {
+    for (let r = 0; r < Math.min(parsedRows.length, 25); r++) {
+      const lowerRow = parsedRows[r].map(c => c.toLowerCase().trim());
+      if (lowerRow.filter(c => c.length > 0).length < 2) continue;
+
+      lowerRow.forEach((c, idx) => {
+        if (c === 'stt' || c === 'số tt' || c === 'số thứ tự' || c === 'no.' || c === 'no') {
+          if (sttIdx === -1) sttIdx = idx;
+        } else if (
+          c.includes('mã hs') || c.includes('ma hs') || c.includes('mã học sinh') ||
+          c.includes('mã định danh') || c.includes('số định danh') || c.includes('mshs') ||
+          c === 'mã số' || c === 'mã' || c === 'id' || c === 'code' || c === 'sbd' || c.includes('số báo danh')
+        ) {
+          if (idIdx === -1) idIdx = idx;
+        } else if (c.includes('họ và tên đệm') || c.includes('họ và chữ lót') || c.includes('họ đệm') || c === 'họ') {
+          if (hoIdx === -1) hoIdx = idx;
+        } else if (c === 'tên' || c === 'tên học sinh' || c === 'tên hs') {
+          if (tenIdx === -1) tenIdx = idx;
+        } else if (c.includes('họ và tên') || c.includes('họ tên') || c === 'name' || c === 'full name') {
+          if (nameIdx === -1) nameIdx = idx;
+        } else if (c.includes('lớp') || c.includes('khối') || c === 'class') {
+          if (classIdx === -1) classIdx = idx;
+        } else if (c.includes('giới tính') || c.includes('phái') || c.includes('nam/nữ') || c === 'gender') {
+          if (genderIdx === -1) genderIdx = idx;
+        } else if (c.includes('ngày sinh') || c.includes('năm sinh') || c === 'dob' || c === 'birthday') {
+          if (dobIdx === -1) dobIdx = idx;
+        } else if (c.includes('ghi chú') || c.includes('nhận xét') || c === 'note') {
+          if (noteIdx === -1) noteIdx = idx;
+        }
+      });
+
+      const hasName = nameIdx >= 0 || (hoIdx >= 0 && tenIdx >= 0) || tenIdx >= 0;
+      const hasId = idIdx >= 0 || sttIdx >= 0;
+      if (hasName && (hasId || classIdx >= 0 || dobIdx >= 0)) {
         headerIdx = r;
-        lowerRow.forEach((c, idx) => {
-          if (c.includes('mã') || c.includes('id') || c.includes('code')) idIdx = idx;
-          else if (c.includes('tên') || c.includes('họ') || c.includes('name')) nameIdx = idx;
-          else if (c.includes('lớp') || c.includes('khối') || c.includes('class')) classIdx = idx;
-          else if (c.includes('giới tính') || c.includes('gender')) genderIdx = idx;
-          else if (c.includes('ngày sinh') || c.includes('dob')) dobIdx = idx;
-          else if (c.includes('ghi chú') || c.includes('note')) noteIdx = idx;
-        });
         break;
       }
     }
+
+    if (idIdx === -1 && sttIdx >= 0) idIdx = sttIdx;
+    if (idIdx === -1) idIdx = 0;
+    if (nameIdx === -1 && hoIdx === -1 && tenIdx === -1) nameIdx = 1;
+    if (classIdx === -1) classIdx = 2;
 
     const students: any[] = [];
     for (let r = headerIdx + 1; r < parsedRows.length; r++) {
       const row = parsedRows[r];
       if (!row || row.length === 0) continue;
-      const rawId = (row[idIdx] || '').trim();
-      const rawName = (row[nameIdx] || '').trim();
-      if (!rawId && !rawName) continue;
+      const rawId = (idIdx >= 0 && row[idIdx] ? row[idIdx] : '').trim();
 
-      const rawClass = row[classIdx] ? row[classIdx].trim() : '3A';
+      let rawName = '';
+      if (hoIdx >= 0 && tenIdx >= 0) {
+        rawName = `${(row[hoIdx] || '').trim()} ${(row[tenIdx] || '').trim()}`.trim();
+      } else if (nameIdx >= 0) {
+        rawName = (row[nameIdx] || '').trim();
+      } else if (tenIdx >= 0) {
+        rawName = (row[tenIdx] || '').trim();
+      }
+
+      if (!rawId && !rawName) continue;
+      if (rawName.toLowerCase().includes('họ và tên') || rawId.toLowerCase().includes('mã hs')) continue;
+
+      const rawClass = classIdx >= 0 && row[classIdx] ? row[classIdx].trim() : '3A';
       let grade = 'Lớp 3';
       if (rawClass.includes('1')) grade = 'Lớp 1';
       else if (rawClass.includes('2')) grade = 'Lớp 2';
@@ -332,12 +376,12 @@ app.post('/api/google-sheet/sync', async (req, res) => {
 
       students.push({
         id: rawId || `HS${String(students.length + 1).padStart(3, '0')}`,
-        name: rawName || `Học sinh ${rawId}`,
+        name: rawName || `Học sinh ${rawId || students.length + 1}`,
         grade,
         className: rawClass,
-        gender: row[genderIdx] || undefined,
-        dob: row[dobIdx] || undefined,
-        notes: row[noteIdx] || undefined,
+        gender: genderIdx >= 0 ? row[genderIdx] : undefined,
+        dob: dobIdx >= 0 ? row[dobIdx] : undefined,
+        notes: noteIdx >= 0 ? row[noteIdx] : undefined,
         stars: 12,
       });
     }

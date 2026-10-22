@@ -1,6 +1,6 @@
 import { GradeLevel, Student, GoogleSheetConfig } from '../types';
 
-export const SAMPLE_GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1gC9aQ4m2yqV5pU-x6nJ0Z3k9Xw7W0A4eF8u8R3kQ7sM/edit?usp=sharing';
+export const SAMPLE_GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit?usp=sharing';
 
 export const STORAGE_KEYS = {
   STUDENTS: 'nuta_students_roster',
@@ -47,7 +47,7 @@ export const DEFAULT_STUDENTS_ROSTER: Student[] = [
     className: '3B',
     gender: 'Nam',
     dob: '19/02/2015',
-    notes: 'Cần hướng dẫn thêm về tư duy vòng lặp lặp lại mãi',
+    notes: 'Cần hướng dẫn thêm về tư duy vòng lặp',
     stars: 12,
   },
   {
@@ -134,35 +134,51 @@ export const DEFAULT_STUDENTS_ROSTER: Student[] = [
 
 /**
  * Trích xuất Sheet ID từ đường dẫn Google Sheets
+ * Hỗ trợ URL thông thường, xuất bản lên web (/d/e/), /open?id=, hoặc ID trực tiếp.
  */
 export function extractSpreadsheetId(url: string): string | null {
   if (!url || typeof url !== 'string') return null;
   const trimmed = url.trim();
 
-  // If it's already an ID (alphanumeric, dashes, underscores, usually 30-50 chars)
-  if (/^[a-zA-Z0-9-_]{20,70}$/.test(trimmed)) {
-    return trimmed;
-  }
-
-  // Standard Google Sheets URL: /spreadsheets/d/{ID}/...
-  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (match && match[1]) {
-    return match[1];
-  }
-
-  // Published sheet: /spreadsheets/d/e/{ID}/pub...
+  // 1. Published sheet: /spreadsheets/d/e/{ID}/pub... (phải kiểm tra trước /d/ để không bị nhận nhầm ID là 'e')
   const pubMatch = trimmed.match(/\/spreadsheets\/d\/e\/([a-zA-Z0-9-_]+)/);
   if (pubMatch && pubMatch[1]) {
     return pubMatch[1];
+  }
+
+  // 2. Standard Google Sheets URL: /spreadsheets/d/{ID}/...
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match && match[1] && match[1] !== 'e') {
+    return match[1];
+  }
+
+  // 3. /open?id={ID}
+  const openMatch = trimmed.match(/[?&]id=([a-zA-Z0-9-_]+)/);
+  if (openMatch && openMatch[1]) {
+    return openMatch[1];
+  }
+
+  // 4. If it's already a raw ID (alphanumeric, dashes, underscores, 20-70 chars)
+  if (/^[a-zA-Z0-9-_]{20,70}$/.test(trimmed)) {
+    return trimmed;
   }
 
   return null;
 }
 
 /**
+ * Trích xuất Tab ID (gid) từ đường dẫn Google Sheets nếu có
+ */
+export function extractGid(url: string): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const match = url.match(/[#?&]gid=([0-9]+)/);
+  return match && match[1] ? match[1] : null;
+}
+
+/**
  * Xây dựng URL CSV để tải dữ liệu trực tiếp từ Google Sheets
  */
-export function buildGoogleSheetCsvUrl(rawUrl: string, sheetName?: string): string {
+export function buildGoogleSheetCsvUrl(rawUrl: string, sheetName?: string, gid?: string | null): string {
   const trimmed = rawUrl.trim();
 
   // If already a direct CSV or published export URL
@@ -180,26 +196,41 @@ export function buildGoogleSheetCsvUrl(rawUrl: string, sheetName?: string): stri
     return trimmed;
   }
 
+  const tabGid = gid || extractGid(trimmed);
+
   // If published sheet with /d/e/
   if (trimmed.includes('/spreadsheets/d/e/')) {
-    return `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`;
+    let pubUrl = `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`;
+    if (tabGid) pubUrl += `&gid=${tabGid}`;
+    return pubUrl;
   }
 
   // Standard Google Sheet gviz/tq export
   let csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
   if (sheetName && sheetName.trim()) {
     csvUrl += `&sheet=${encodeURIComponent(sheetName.trim())}`;
+  } else if (tabGid) {
+    csvUrl += `&gid=${tabGid}`;
   }
   return csvUrl;
 }
 
 /**
- * Bộ phân tích cú pháp CSV tuân thủ RFC-4180
- * Xử lý chính xác dấu ngoặc kép, dấu phẩy bên trong ô và ký tự có dấu tiếng Việt UTF-8
+ * Phân tích cú pháp văn bản bảng (CSV hoặc Tab-separated từ copy paste Google Sheets / Excel)
+ * Xử lý đúng dấu ngoặc kép, ký tự xuống dòng và tiếng Việt UTF-8
  */
 export function parseCsv(csvText: string): string[][] {
-  const cleanText = csvText.replace(/^\uFEFF/, '').trim(); // Remove UTF-8 BOM
+  const cleanText = csvText.replace(/^\uFEFF/, '').trim();
   if (!cleanText) return [];
+
+  // Tự động phát hiện dấu phân cách: TAB (\t), Phẩy (,), hoặc Chấm phẩy (;)
+  const firstLine = cleanText.split(/\r?\n/)[0] || '';
+  let delimiter = ',';
+  if (firstLine.includes('\t')) {
+    delimiter = '\t';
+  } else if (!firstLine.includes(',') && firstLine.includes(';')) {
+    delimiter = ';';
+  }
 
   const rows: string[][] = [];
   let currentRow: string[] = [];
@@ -212,19 +243,17 @@ export function parseCsv(csvText: string): string[][] {
 
     if (char === '"') {
       if (inQuotes && nextChar === '"') {
-        // Escaped quote: "" -> "
         currentField += '"';
         i++;
       } else {
-        // Toggle quote state
         inQuotes = !inQuotes;
       }
-    } else if (char === ',' && !inQuotes) {
+    } else if (char === delimiter && !inQuotes) {
       currentRow.push(currentField.trim());
       currentField = '';
     } else if ((char === '\r' || char === '\n') && !inQuotes) {
       if (char === '\r' && nextChar === '\n') {
-        i++; // skip \n of \r\n
+        i++;
       }
       currentRow.push(currentField.trim());
       currentField = '';
@@ -248,7 +277,7 @@ export function parseCsv(csvText: string): string[][] {
 }
 
 /**
- * Chuẩn hóa tên khối lớp ('Lớp 1' | 'Lớp 2' | 'Lớp 3' | 'Lớp 4' | 'Lớp 5')
+ * Chuẩn hóa khối lớp ('Lớp 1' | 'Lớp 2' | 'Lớp 3' | 'Lớp 4' | 'Lớp 5')
  */
 export function normalizeGradeLevel(val: string): GradeLevel {
   const str = (val || '').toLowerCase().trim();
@@ -256,16 +285,17 @@ export function normalizeGradeLevel(val: string): GradeLevel {
   if (str.includes('2') || str.includes('lớp 2') || str.includes('khối 2')) return 'Lớp 2';
   if (str.includes('4') || str.includes('lớp 4') || str.includes('khối 4')) return 'Lớp 4';
   if (str.includes('5') || str.includes('lớp 5') || str.includes('khối 5')) return 'Lớp 5';
-  return 'Lớp 3'; // default
+  return 'Lớp 3';
 }
 
 /**
  * Tải dữ liệu Google Sheets trực tiếp qua JSONP (GViz API)
- * Hoàn toàn miễn nhiễm với CORS trong mọi trình duyệt, không cần backend server.
+ * Hoàn toàn không bị CORS chặn trên trình duyệt, không cần backend server.
  */
 export function fetchGoogleSheetJsonp(
   sheetId: string,
-  sheetName?: string
+  sheetName?: string,
+  gid?: string | null
 ): Promise<string[][]> {
   return new Promise((resolve, reject) => {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -279,12 +309,14 @@ export function fetchGoogleSheetJsonp(
     let url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=responseHandler:${callbackName}`;
     if (sheetName && sheetName.trim()) {
       url += `&sheet=${encodeURIComponent(sheetName.trim())}`;
+    } else if (gid) {
+      url += `&gid=${encodeURIComponent(gid)}`;
     }
 
     const timeout = setTimeout(() => {
       cleanup();
-      reject(new Error('Quá thời gian kết nối tới Google Sheets (12s).'));
-    }, 12000);
+      reject(new Error('Quá thời gian kết nối tới Google Sheets (15s). Vui lòng kiểm tra lại đường truyền mạng hoặc quyền chia sẻ.'));
+    }, 15000);
 
     function cleanup() {
       clearTimeout(timeout);
@@ -301,17 +333,28 @@ export function fetchGoogleSheetJsonp(
     (window as any)[callbackName] = (data: any) => {
       cleanup();
       try {
-        if (!data || !data.table) {
-          reject(new Error('Dữ liệu Google Sheets không đúng cấu trúc bảng.'));
+        if (!data) {
+          reject(new Error('Không nhận được dữ liệu từ Google Sheets.'));
+          return;
+        }
+
+        if (data.status === 'error') {
+          const detail = (data.errors && data.errors[0]?.detailed_message) || data.errors?.[0]?.message || 'Không có quyền truy cập';
+          reject(new Error(`Google Sheet phản hồi lỗi: ${detail}. Hãy chắc chắn bảng tính đã mở quyền: "Bất kỳ ai có đường liên kết -> Người xem".`));
+          return;
+        }
+
+        if (!data.table) {
+          reject(new Error('Dữ liệu Google Sheets không đúng cấu trúc bảng tính.'));
           return;
         }
 
         const table = data.table;
         const rows: string[][] = [];
 
-        // Tiêu đề từ cols (nếu có nhãn)
+        // Tiêu đề từ cols (nếu có nhãn thực tế)
         const headerRow: string[] = (table.cols || []).map((col: any) =>
-          (col?.label || col?.id || '').trim()
+          (col?.label || '').trim()
         );
         if (headerRow.some((h) => h.length > 0)) {
           rows.push(headerRow);
@@ -321,8 +364,14 @@ export function fetchGoogleSheetJsonp(
         for (const rowObj of table.rows || []) {
           const cells = (rowObj.c || []).map((cell: any) => {
             if (!cell) return '';
-            if (cell.v !== undefined && cell.v !== null) return String(cell.v).trim();
-            if (cell.f !== undefined && cell.f !== null) return String(cell.f).trim();
+            // Ưu tiên cell.f (giá trị chuỗi hiển thị có định dạng như "HS001", "01", ngày tháng)
+            // để không bị mất số 0 đầu dòng và không bị chuyển thành đối tượng Date
+            if (cell.f !== undefined && cell.f !== null && String(cell.f).trim() !== '') {
+              return String(cell.f).trim();
+            }
+            if (cell.v !== undefined && cell.v !== null) {
+              return String(cell.v).trim();
+            }
             return '';
           });
           if (cells.some((c: string) => c.length > 0)) {
@@ -339,7 +388,7 @@ export function fetchGoogleSheetJsonp(
     script.src = url;
     script.onerror = () => {
       cleanup();
-      reject(new Error('Không thể tải Google Sheet qua GViz. Vui lòng đảm bảo bảng tính đã được mở quyền xem công khai.'));
+      reject(new Error('Không thể tải Google Sheet qua GViz. Vui lòng mở quyền: "Bất kỳ ai có đường liên kết" ➔ vai trò "Người xem".'));
     };
 
     document.head.appendChild(script);
@@ -347,14 +396,15 @@ export function fetchGoogleSheetJsonp(
 }
 
 /**
- * Chuyển đổi dữ liệu bảng 2 chiều từ CSV/JSONP thành danh sách Student[]
+ * Chuyển đổi dữ liệu bảng 2 chiều từ Google Sheet / CSV / Clipboard thành danh sách Student[]
+ * Tối ưu hóa đặc biệt cho các bảng điểm / danh sách lớp tiểu học Việt Nam (vnEdu, SMAS, CSDL ngành...)
  */
 export function mapCsvRowsToStudents(rows: string[][]): Student[] {
-  if (rows.length === 0) return [];
+  if (!rows || rows.length === 0) return [];
 
-  // Tìm dòng tiêu đề (Header row)
   let headerIndex = -1;
   let idCol = -1;
+  let sttCol = -1;
   let nameCol = -1;
   let hoCol = -1;
   let tenCol = -1;
@@ -364,45 +414,149 @@ export function mapCsvRowsToStudents(rows: string[][]): Student[] {
   let noteCol = -1;
   let starsCol = -1;
 
-  for (let r = 0; r < Math.min(rows.length, 6); r++) {
-    const row = rows[r].map((cell) => (cell || '').toLowerCase().trim());
+  // Quét qua các dòng đầu tiên (tối đa 25 dòng) để tìm dòng tiêu đề thật của bảng
+  for (let r = 0; r < Math.min(rows.length, 25); r++) {
+    const rawCells = rows[r] || [];
+    const row = rawCells.map((cell) => (cell || '').toLowerCase().trim());
+    if (row.filter((c) => c.length > 0).length < 2) continue; // Dòng tiêu đề thực tế phải có từ 2 cột trở lên
 
-    // Check if this row looks like a header
-    const hasId = row.some((c) =>
-      c.includes('mã') || c.includes('ma hs') || c.includes('mahs') || c === 'id' || c.includes('code') || c.includes('mshs') || c.includes('sbd')
-    );
-    const hasName = row.some((c) =>
-      c.includes('tên') || c.includes('họ') || c.includes('name')
-    );
+    let curIdCol = -1;
+    let curSttCol = -1;
+    let curNameCol = -1;
+    let curHoCol = -1;
+    let curTenCol = -1;
+    let curClassCol = -1;
+    let curGenderCol = -1;
+    let curDobCol = -1;
+    let curNoteCol = -1;
+    let curStarsCol = -1;
 
-    if (hasId || hasName) {
+    row.forEach((col, idx) => {
+      // 1. Cột STT
+      if (col === 'stt' || col === 'số tt' || col === 'số thứ tự' || col === 'no.' || col === 'no') {
+        if (curSttCol === -1) curSttCol = idx;
+      }
+      // 2. Cột Mã HS / Mã định danh / SBD (không trùng với STT)
+      else if (
+        col.includes('mã hs') ||
+        col.includes('ma hs') ||
+        col.includes('mahs') ||
+        col.includes('mã học sinh') ||
+        col.includes('mã số học sinh') ||
+        col.includes('mã định danh') ||
+        col.includes('số định danh') ||
+        col.includes('mshs') ||
+        col === 'mã số' ||
+        col === 'mã' ||
+        col === 'id' ||
+        col === 'student id' ||
+        col === 'student_id' ||
+        col === 'code' ||
+        col === 'sbd' ||
+        col.includes('số báo danh')
+      ) {
+        if (curIdCol === -1) curIdCol = idx;
+      }
+      // 3. Họ và tên đệm (tách rời)
+      else if (
+        col.includes('họ và tên đệm') ||
+        col.includes('họ và chữ lót') ||
+        col.includes('họ đệm') ||
+        col.includes('họ lót') ||
+        col === 'họ'
+      ) {
+        if (curHoCol === -1) curHoCol = idx;
+      }
+      // 4. Tên học sinh (tách rời)
+      else if (col === 'tên' || col === 'tên hs' || col === 'tên học sinh' || col === 'ten') {
+        if (curTenCol === -1) curTenCol = idx;
+      }
+      // 5. Họ và tên đầy đủ (Gộp chung)
+      // Lưu ý: Không dùng c.includes('họ') đơn thuần để tránh dính "học sinh" hoặc "học kỳ"
+      else if (
+        col.includes('họ và tên') ||
+        col.includes('họ tên') ||
+        col.includes('họ & tên') ||
+        col === 'full name' ||
+        col === 'fullname' ||
+        col === 'name' ||
+        col === 'học sinh'
+      ) {
+        if (curNameCol === -1) curNameCol = idx;
+      }
+      // 6. Cột Lớp / Khối
+      else if (
+        col.includes('lớp') ||
+        col.includes('khối') ||
+        col === 'class' ||
+        col === 'grade'
+      ) {
+        if (curClassCol === -1) curClassCol = idx;
+      }
+      // 7. Cột Giới tính
+      else if (
+        col.includes('giới tính') ||
+        col.includes('phái') ||
+        col.includes('nam/nữ') ||
+        col.includes('nam nữ') ||
+        col === 'gender' ||
+        col === 'sex'
+      ) {
+        if (curGenderCol === -1) curGenderCol = idx;
+      }
+      // 8. Cột Ngày sinh
+      else if (
+        col.includes('ngày sinh') ||
+        col.includes('năm sinh') ||
+        col === 'dob' ||
+        col === 'birthday' ||
+        col === 'birth'
+      ) {
+        if (curDobCol === -1) curDobCol = idx;
+      }
+      // 9. Cột Ghi chú
+      else if (
+        col.includes('ghi chú') ||
+        col.includes('nhận xét') ||
+        col === 'note' ||
+        col === 'notes'
+      ) {
+        if (curNoteCol === -1) curNoteCol = idx;
+      }
+      // 10. Cột Điểm / Số sao
+      else if (
+        col.includes('số sao') ||
+        col.includes('sao') ||
+        col.includes('điểm') ||
+        col === 'stars' ||
+        col === 'star' ||
+        col === 'point'
+      ) {
+        if (curStarsCol === -1) curStarsCol = idx;
+      }
+    });
+
+    const hasNameInfo = curNameCol >= 0 || (curHoCol >= 0 && curTenCol >= 0) || curTenCol >= 0;
+    const hasIdInfo = curIdCol >= 0 || curSttCol >= 0;
+
+    // Điều kiện nhận diện dòng tiêu đề chuẩn
+    if (hasNameInfo && (hasIdInfo || curClassCol >= 0 || curGenderCol >= 0 || curDobCol >= 0)) {
       headerIndex = r;
-      row.forEach((col, idx) => {
-        if (col.includes('mã hs') || col.includes('ma hs') || col.includes('mahs') || col.includes('mã học sinh') || col.includes('mã định danh') || col.includes('mshs') || col.includes('mã') || col === 'id' || col === 'code' || col === 'sbd') {
-          if (idCol === -1) idCol = idx;
-        } else if (col === 'họ' || col.includes('họ đệm') || col.includes('họ và tên đệm') || col.includes('họ và chữ lót') || col.includes('họ lót')) {
-          if (hoCol === -1) hoCol = idx;
-        } else if (col === 'tên' || col.includes('tên học sinh')) {
-          if (tenCol === -1) tenCol = idx;
-        } else if (col.includes('họ và tên') || col.includes('họ tên') || col.includes('full name') || col.includes('fullname') || col === 'name') {
-          if (nameCol === -1) nameCol = idx;
-        } else if (col.includes('lớp') || col.includes('khối') || col === 'class' || col === 'grade') {
-          if (classCol === -1) classCol = idx;
-        } else if (col.includes('giới tính') || col.includes('phái') || col === 'gender' || col === 'sex' || col.includes('nam/nữ')) {
-          if (genderCol === -1) genderCol = idx;
-        } else if (col.includes('ngày sinh') || col.includes('năm sinh') || col === 'dob' || col === 'birth' || col.includes('birthday')) {
-          if (dobCol === -1) dobCol = idx;
-        } else if (col.includes('ghi chú') || col.includes('nhận xét') || col.includes('note') || col.includes('notes')) {
-          if (noteCol === -1) noteCol = idx;
-        } else if (col.includes('sao') || col.includes('điểm') || col.includes('stars') || col.includes('star')) {
-          if (starsCol === -1) starsCol = idx;
-        }
-      });
+      idCol = curIdCol;
+      sttCol = curSttCol;
+      nameCol = curNameCol;
+      hoCol = curHoCol;
+      tenCol = curTenCol;
+      classCol = curClassCol;
+      genderCol = curGenderCol;
+      dobCol = curDobCol;
+      noteCol = curNoteCol;
+      starsCol = curStarsCol;
       break;
     }
   }
 
-  // Fallback defaults if no recognizable header found
+  // Nếu không thấy header rõ ràng, thử phán đoán dựa vào các cột đầu
   if (headerIndex === -1) {
     headerIndex = -1;
     idCol = 0;
@@ -410,11 +564,15 @@ export function mapCsvRowsToStudents(rows: string[][]): Student[] {
     classCol = 2;
     genderCol = 3;
     dobCol = 4;
-    noteCol = 5;
   } else {
-    if (idCol === -1) idCol = 0;
-    if (nameCol === -1 && hoCol === -1 && tenCol === -1) nameCol = 1;
-    if (classCol === -1) classCol = 2;
+    // Nếu có STT mà không có cột Mã HS riêng, dùng STT làm Mã HS
+    if (idCol === -1 && sttCol >= 0) {
+      idCol = sttCol;
+    }
+    // Nếu không có tên gộp mà có cột tên tách
+    if (nameCol === -1 && hoCol === -1 && tenCol >= 0) {
+      nameCol = tenCol;
+    }
   }
 
   const students: Student[] = [];
@@ -423,7 +581,7 @@ export function mapCsvRowsToStudents(rows: string[][]): Student[] {
     const row = rows[r];
     if (!row || row.length === 0) continue;
 
-    const rawId = (row[idCol] || '').trim();
+    const rawId = (idCol >= 0 && row[idCol] ? row[idCol] : '').trim();
 
     let rawName = '';
     if (hoCol >= 0 && tenCol >= 0) {
@@ -436,23 +594,38 @@ export function mapCsvRowsToStudents(rows: string[][]): Student[] {
       rawName = (row[tenCol] || '').trim();
     }
 
-    // Skip empty or invalid rows
+    // Bỏ qua dòng trống hoặc dòng lặp lại tiêu đề
     if (!rawId && !rawName) continue;
-    if (rawName.toLowerCase().includes('họ và tên') || rawId.toLowerCase().includes('mã hs')) continue;
+    const lowerName = rawName.toLowerCase();
+    const lowerId = rawId.toLowerCase();
+    if (
+      lowerName.includes('họ và tên') ||
+      lowerName.includes('họ tên') ||
+      lowerId.includes('mã hs') ||
+      lowerId === 'stt'
+    ) {
+      continue;
+    }
 
-    const id = rawId || `HS${String(students.length + 1).padStart(3, '0')}`;
-    const name = rawName || `Học sinh ${id}`;
+    // Xử lý tạo Mã HS chuẩn:
+    // Nếu có rawId thì dùng, nếu rawId là số thuần túy (VD: STT 1, 2) thì chuẩn hóa HS001 hoặc giữ nguyên
+    let finalId = rawId;
+    if (!finalId) {
+      finalId = `HS${String(students.length + 1).padStart(3, '0')}`;
+    }
+
+    const finalName = rawName || `Học sinh ${finalId}`;
     const rawClass = classCol >= 0 && row[classCol] ? row[classCol].trim() : '3A';
     const grade = normalizeGradeLevel(rawClass);
     const gender = genderCol >= 0 && row[genderCol] ? row[genderCol].trim() : undefined;
     const dob = dobCol >= 0 && row[dobCol] ? row[dobCol].trim() : undefined;
     const notes = noteCol >= 0 && row[noteCol] ? row[noteCol].trim() : undefined;
     const rawStars = starsCol >= 0 && row[starsCol] ? parseInt(row[starsCol].trim(), 10) : NaN;
-    const stars = !isNaN(rawStars) ? rawStars : Math.floor(Math.random() * 10) + 10;
+    const stars = !isNaN(rawStars) ? rawStars : Math.floor(Math.random() * 8) + 12;
 
     students.push({
-      id,
-      name,
+      id: finalId,
+      name: finalName,
       grade,
       className: rawClass,
       gender,
@@ -466,9 +639,18 @@ export function mapCsvRowsToStudents(rows: string[][]): Student[] {
 }
 
 /**
+ * Phân tích trực tiếp dữ liệu do giáo viên copy từ Google Sheets / Excel rồi dán (Ctrl+V) vào ứng dụng
+ * Không cần mở quyền chia sẻ, không phụ thuộc vào internet hay CORS.
+ */
+export function parseRawClipboardOrText(rawText: string): Student[] {
+  if (!rawText || !rawText.trim()) return [];
+  const rows = parseCsv(rawText.trim());
+  return mapCsvRowsToStudents(rows);
+}
+
+/**
  * Tải danh sách học sinh trực tuyến từ Google Sheets
- * Kiến trúc đa tầng (JSONP GViz -> Direct CSV -> CORS Proxy -> Server Proxy)
- * Bỏ qua 100% lỗi CORS trên Vercel và mọi trình duyệt.
+ * Kiến trúc đa tầng (JSONP GViz -> CORS Proxies -> Server Proxy)
  */
 export async function fetchStudentsFromGoogleSheet(
   sheetUrl: string,
@@ -480,6 +662,7 @@ export async function fetchStudentsFromGoogleSheet(
 
   const trimmedUrl = sheetUrl.trim();
   const sheetId = extractSpreadsheetId(trimmedUrl);
+  const gid = extractGid(trimmedUrl);
 
   // 1. Google Apps Script Web App JSON
   if (trimmedUrl.includes('script.google.com/macros/s/')) {
@@ -490,8 +673,8 @@ export async function fetchStudentsFromGoogleSheet(
         const list = Array.isArray(parsed) ? parsed : parsed.data || parsed.students || [];
         if (list.length > 0) {
           const students: Student[] = list.map((item: any, idx: number) => ({
-            id: item.id || item.maHS || item['Mã HS'] || `HS${String(idx + 1).padStart(3, '0')}`,
-            name: item.name || item.hoVaTen || item['Họ và tên'] || `Học sinh ${idx + 1}`,
+            id: String(item.id || item.maHS || item['Mã HS'] || item['Mã định danh'] || `HS${String(idx + 1).padStart(3, '0')}`).trim(),
+            name: String(item.name || item.hoVaTen || item['Họ và tên'] || `Học sinh ${idx + 1}`).trim(),
             grade: normalizeGradeLevel(item.grade || item.lop || item['Lớp'] || 'Lớp 3'),
             className: item.className || item.lop || item['Lớp'] || '3A',
             gender: item.gender || item.gioiTinh || item['Giới tính'],
@@ -503,27 +686,27 @@ export async function fetchStudentsFromGoogleSheet(
         }
       }
     } catch (e) {
-      console.warn('Apps script direct fetch failed, trying next methods...', e);
+      console.warn('Apps script direct fetch failed, trying GViz/JSONP...', e);
     }
   }
 
-  // 2. Google Visualization API qua JSONP (Không bị CORS, cực nhanh, chạy trực tiếp trên browser)
-  if (sheetId && !sheetId.startsWith('2PACX-') && typeof window !== 'undefined') {
+  // 2. Google Visualization API qua JSONP (Cực nhanh, 0% lỗi CORS trên mọi trình duyệt)
+  if (sheetId && !trimmedUrl.includes('/spreadsheets/d/e/') && typeof window !== 'undefined') {
     try {
-      const rows = await fetchGoogleSheetJsonp(sheetId, sheetName);
+      const rows = await fetchGoogleSheetJsonp(sheetId, sheetName, gid);
       if (rows && rows.length > 0) {
         const students = mapCsvRowsToStudents(rows);
         if (students.length > 0) {
           return { students, count: students.length, source: 'gviz-jsonp' };
         }
       }
-    } catch (jsonpErr) {
-      console.warn('JSONP fetch failed, trying proxy/direct methods:', jsonpErr);
+    } catch (jsonpErr: any) {
+      console.warn('JSONP fetch failed, trying proxy methods:', jsonpErr?.message || jsonpErr);
     }
   }
 
-  // 3. Direct CSV hoặc CORS Proxies
-  const csvUrl = buildGoogleSheetCsvUrl(trimmedUrl, sheetName);
+  // 3. Tải trực tiếp CSV hoặc qua các cổng CORS Proxy an toàn
+  const csvUrl = buildGoogleSheetCsvUrl(trimmedUrl, sheetName, gid);
   let csvText = '';
 
   // Thử Direct Fetch
@@ -536,10 +719,10 @@ export async function fetchStudentsFromGoogleSheet(
       }
     }
   } catch {
-    // Expected on Vercel cross-origin
+    // Dự kiến bị CORS chặn trên browser với Google URL
   }
 
-  // Thử qua CORS Proxies nếu direct bị chặn
+  // Thử qua CORS Proxies
   if (!csvText && typeof window !== 'undefined') {
     const proxies = [
       `https://api.allorigins.win/raw?url=${encodeURIComponent(csvUrl)}`,
@@ -549,7 +732,7 @@ export async function fetchStudentsFromGoogleSheet(
 
     for (const proxyUrl of proxies) {
       try {
-        const pResp = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
+        const pResp = await fetch(proxyUrl, { signal: AbortSignal.timeout(7000) });
         if (pResp.ok) {
           const pText = await pResp.text();
           if (pText && !pText.includes('accounts.google.com') && pText.length > 10) {
@@ -558,12 +741,12 @@ export async function fetchStudentsFromGoogleSheet(
           }
         }
       } catch {
-        // try next
+        // thử proxy tiếp theo
       }
     }
   }
 
-  // 4. Server Proxy (cho dev server tsx server.ts)
+  // 4. Server Proxy cục bộ (nếu chạy qua server.ts)
   if (!csvText) {
     try {
       const serverResp = await fetch('/api/google-sheet/sync', {
@@ -571,14 +754,16 @@ export async function fetchStudentsFromGoogleSheet(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sheetUrl: trimmedUrl, sheetName: sheetName || '' }),
       });
-      if (serverResp.ok) {
+      // Kiểm tra chắc chắn là JSON, không phải HTML fallback của SPA
+      const contentType = serverResp.headers.get('content-type') || '';
+      if (serverResp.ok && contentType.includes('application/json')) {
         const data = await serverResp.json();
         if (data && Array.isArray(data.students) && data.students.length > 0) {
           return { students: data.students, count: data.students.length, source: 'server-proxy' };
         }
       }
     } catch {
-      // ignore
+      // bỏ qua
     }
   }
 
@@ -591,8 +776,11 @@ export async function fetchStudentsFromGoogleSheet(
   }
 
   throw new Error(
-    'Không thể tải dữ liệu từ Google Sheet. Vui lòng kiểm tra quyền chia sẻ:\n' +
-    'Bấm nút "Chia sẻ" (Share) ở góc trên bảng tính -> Chọn "Bất kỳ ai có đường liên kết" với vai trò "Người xem".'
+    'Không thể đọc dữ liệu học sinh từ liên kết Google Sheet này.\n\n' +
+    '📌 Cách khắc phục nhanh:\n' +
+    '1. Mở bảng tính Google Sheets → Bấm nút "Chia sẻ" (Share) ở góc trên bên phải.\n' +
+    '2. Tại mục "Quyền truy cập chung", chọn "Bất kỳ ai có đường liên kết" với vai trò "Người xem".\n' +
+    '3. Hoặc bạn có thể dùng tính năng: "📋 Dán trực tiếp từ Google Sheet" (Bôi đen bảng tính → Ctrl+C → Dán vào NUTA) để nhập ngay 100% không lo quyền chia sẻ!'
   );
 }
 
@@ -679,5 +867,6 @@ export function exportRosterToCsv(students: Student[]): string {
     `"${s.notes || ''}"`,
     `${s.stars || 0}`,
   ]);
+
   return [header.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
 }

@@ -179,9 +179,13 @@ export default function App() {
         setSheetConfig(updatedConfig);
         saveSheetConfig(updatedConfig);
         playVictoryFanfare();
+      } else {
+        setShowStudentModal(true);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Google Sheet sync error:', err);
+      // Mở modal để người dùng thấy rõ thông báo lỗi và cách khắc phục
+      setShowStudentModal(true);
     } finally {
       setIsSyncingSheet(false);
     }
