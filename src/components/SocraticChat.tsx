@@ -34,6 +34,11 @@ import {
   getStoredApiKey,
   getStoredModel,
 } from '../utils/geminiAi';
+import {
+  findOrRegisterStudent,
+  loadSavedStudents,
+  saveStudents,
+} from '../utils/googleSheets';
 
 interface SocraticChatProps {
   grade: GradeLevel;
@@ -44,6 +49,9 @@ interface SocraticChatProps {
   currentStudent?: Student | null;
   onOpenStudentModal?: () => void;
   onOpenApiKeyModal?: () => void;
+  students?: Student[];
+  onSelectStudent?: (student: Student | null) => void;
+  onUpdateStudents?: (students: Student[]) => void;
 }
 
 const SOCRATIC_STEPS: { step: SocraticStep; label: string; icon: string; desc: string }[] = [
@@ -64,7 +72,35 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
   currentStudent,
   onOpenStudentModal,
   onOpenApiKeyModal,
+  students,
+  onSelectStudent,
+  onUpdateStudents,
 }) => {
+  const [directCodeInput, setDirectCodeInput] = useState('');
+
+  const handleDirectLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const raw = directCodeInput.trim();
+    if (!raw) {
+      if (onOpenStudentModal) onOpenStudentModal();
+      return;
+    }
+
+    const roster = students && students.length > 0 ? students : loadSavedStudents();
+    const res = findOrRegisterStudent(raw, roster, grade);
+    if (res) {
+      if (res.isNew && onUpdateStudents) {
+        onUpdateStudents(res.updatedStudents);
+        saveStudents(res.updatedStudents);
+      }
+      if (onSelectStudent) {
+        onSelectStudent(res.student);
+      }
+      playVictoryFanfare();
+      setDirectCodeInput('');
+    }
+  };
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'init-1',
@@ -334,35 +370,71 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Student Identification Pill */}
+            {/* Khung Nhập Mã HS & Nhận diện Học sinh Trực tiếp */}
             {currentStudent ? (
-              <button
-                onClick={() => {
-                  playClickPop();
-                  if (onOpenStudentModal) onOpenStudentModal();
-                }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-bold text-xs transition-colors cursor-pointer shadow-2xs"
-                title="Nhấn để đổi học sinh hoặc xem chi tiết Google Sheet"
-              >
+              <div className="flex items-center gap-1.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 text-amber-900 font-bold text-xs px-2.5 py-1.5 rounded-xl shadow-2xs">
                 <span>{currentStudent.gender === 'Nữ' ? '👧' : '👦'}</span>
                 <span className="font-mono bg-white px-1.5 py-0.5 rounded text-[10px] font-black border border-amber-200 text-indigo-700">
                   {currentStudent.id}
                 </span>
                 <span className="max-w-[110px] truncate">{currentStudent.name}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playClickPop();
+                    if (onSelectStudent) onSelectStudent(null);
+                  }}
+                  className="ml-0.5 text-slate-400 hover:text-rose-600 font-black text-xs px-1 py-0.5 rounded cursor-pointer transition-colors"
+                  title="Thoát / Đổi sang học sinh khác"
+                >
+                  ✕
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playClickPop();
+                    if (onOpenStudentModal) onOpenStudentModal();
+                  }}
+                  className="text-sky-600 hover:text-sky-800 text-[11px] font-bold underline cursor-pointer ml-0.5"
+                  title="Xem danh sách cả lớp hoặc kết nối Google Sheet"
+                >
+                  Đổi
+                </button>
+              </div>
             ) : (
-              <button
-                onClick={() => {
-                  playClickPop();
-                  if (onOpenStudentModal) onOpenStudentModal();
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-50 to-indigo-50 hover:from-sky-100 hover:to-indigo-100 border border-sky-300 text-sky-900 font-black text-xs transition-all cursor-pointer shadow-2xs hover:shadow-xs group"
-                title="Bấm để chọn tên hoặc số thứ tự của em để vào học cùng NUTA"
+              <form
+                onSubmit={handleDirectLoginSubmit}
+                className="flex items-center gap-1.5 bg-white border-2 border-sky-400 hover:border-sky-500 focus-within:border-sky-600 focus-within:ring-2 focus-within:ring-sky-200 rounded-xl px-2.5 py-1 shadow-2xs transition-all"
               >
-                <span className="text-sm group-hover:scale-110 transition-transform">🎓</span>
-                <span>Chọn Tên / Mã HS</span>
-                <span className="bg-sky-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black uppercase tracking-wider">Vào học</span>
-              </button>
+                <span className="text-sm select-none shrink-0" title="Mã học sinh">🎓</span>
+                <input
+                  type="text"
+                  value={directCodeInput}
+                  onChange={(e) => setDirectCodeInput(e.target.value)}
+                  placeholder="Nhập Mã HS hoặc Tên..."
+                  className="w-32 sm:w-44 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none bg-transparent"
+                  title="Nhập Mã HS (VD: HS001, 1, 240101) hoặc Tên em rồi bấm Vào học"
+                  autoComplete="off"
+                />
+                <button
+                  type="submit"
+                  className="bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-[10px] px-2 py-1 rounded-lg font-black uppercase tracking-wider shadow-2xs cursor-pointer transition-all shrink-0"
+                  title="Bấm để vào học ngay"
+                >
+                  Vào học
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playClickPop();
+                    if (onOpenStudentModal) onOpenStudentModal();
+                  }}
+                  className="text-slate-400 hover:text-sky-600 hover:bg-sky-50 p-1 rounded-lg transition-colors cursor-pointer shrink-0"
+                  title="Xem danh sách học sinh cả lớp hoặc kết nối Google Sheet"
+                >
+                  <span className="text-xs">📋</span>
+                </button>
+              </form>
             )}
 
             {/* Hint Strategy Level Selector */}

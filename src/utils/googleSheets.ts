@@ -870,3 +870,124 @@ export function exportRosterToCsv(students: Student[]): string {
 
   return [header.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
 }
+
+/**
+ * Chuẩn hóa chuỗi tiếng Việt để tìm kiếm không phân biệt hoa thường và không phân biệt dấu
+ */
+export function removeVietnameseTones(str: string): string {
+  if (!str) return '';
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, (m) => (m === 'đ' ? 'd' : 'D'))
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Thuật toán tìm kiếm học sinh thông minh trong danh sách:
+ * - Khớp chính xác Mã HS (HS001, 240101)
+ * - Khớp STT dạng số (1, 01 -> HS001)
+ * - Khớp Họ và tên có dấu và không dấu (Nguyễn Gia Bảo, nguyen gia bao)
+ * - Khớp tên gọi (Bảo, Bao, Quân, Quan)
+ */
+export function findStudentInRoster(rawInput: string, students: Student[]): Student | undefined {
+  const raw = rawInput.trim();
+  if (!raw) return undefined;
+
+  const term = raw.toLowerCase();
+  const termClean = term.replace(/[^0-9a-z]/g, '');
+  const termNorm = removeVietnameseTones(raw);
+  const termDigitsOnly = term.replace(/[^0-9]/g, '');
+  const termNum = termDigitsOnly ? parseInt(termDigitsOnly, 10) : NaN;
+
+  // 1. So khớp chính xác ID (VD: "HS001", "240101")
+  const exactId = students.find((s) => s.id.toLowerCase() === term);
+  if (exactId) return exactId;
+
+  // 2. So khớp ID làm sạch (bỏ khoảng cách, gạch nối: "HS-001" -> "hs001")
+  if (termClean) {
+    const cleanId = students.find(
+      (s) => s.id.toLowerCase().replace(/[^0-9a-z]/g, '') === termClean
+    );
+    if (cleanId) return cleanId;
+  }
+
+  // 3. So khớp dạng số thứ tự (VD: gõ "1" hoặc "01" -> khớp "HS001")
+  if (!isNaN(termNum) && termNum > 0) {
+    const numMatch = students.find((s) => {
+      const sDigits = s.id.replace(/[^0-9]/g, '');
+      if (!sDigits) return false;
+      return parseInt(sDigits, 10) === termNum;
+    });
+    if (numMatch) return numMatch;
+  }
+
+  // 4. So khớp theo Họ và tên chính xác (kể cả có dấu hoặc không dấu)
+  const nameExact = students.find(
+    (s) => s.name.toLowerCase() === term || removeVietnameseTones(s.name) === termNorm
+  );
+  if (nameExact) return nameExact;
+
+  // 5. So khớp theo tên riêng (VD: gõ "Bảo", "Bao", "Quân", "Quan")
+  const firstNameMatch = students.find((s) => {
+    const normName = removeVietnameseTones(s.name);
+    const parts = normName.split(' ');
+    const firstName = parts[parts.length - 1];
+    return firstName === termNorm || normName.includes(termNorm);
+  });
+  if (firstNameMatch) return firstNameMatch;
+
+  // 6. So khớp ID dạng chứa (VD: gõ "001" -> tìm "HS001")
+  if (term.length >= 2) {
+    const partialId = students.find((s) => s.id.toLowerCase().includes(term));
+    if (partialId) return partialId;
+  }
+
+  return undefined;
+}
+
+/**
+ * Tìm hoặc tự động tạo học sinh mới để vào học ngay lập tức:
+ * Đảm bảo 100% học sinh tiểu học không bao giờ bị chặn hay báo lỗi!
+ */
+export function findOrRegisterStudent(
+  rawInput: string,
+  students: Student[],
+  fallbackGrade: GradeLevel = 'Lớp 3'
+): { student: Student; updatedStudents: Student[]; isNew: boolean } | null {
+  const raw = rawInput.trim();
+  if (!raw) return null;
+
+  const found = findStudentInRoster(raw, students);
+  if (found) {
+    return { student: found, updatedStudents: students, isNew: false };
+  }
+
+  // Nếu chưa có trong danh sách: Tự động khởi tạo ngay lập tức
+  const isOnlyNumber = /^[0-9]+$/.test(raw);
+  let finalId = raw.toUpperCase();
+  if (isOnlyNumber) {
+    if (raw.length <= 3) {
+      finalId = `HS${raw.padStart(3, '0')}`;
+    } else {
+      finalId = raw; // Mã thẻ số dài
+    }
+  }
+
+  let finalName = `Học sinh ${finalId}`;
+  if (!isOnlyNumber && !raw.toUpperCase().startsWith('HS')) {
+    finalName = raw; // Học sinh gõ trực tiếp họ tên
+  }
+
+  const newStudent: Student = {
+    id: finalId,
+    name: finalName,
+    grade: fallbackGrade,
+    className: `${fallbackGrade.replace('Lớp ', '')}A`,
+    stars: 12,
+  };
+
+  const updatedStudents = [newStudent, ...students.filter((s) => s.id !== finalId)];
+  return { student: newStudent, updatedStudents, isNew: true };
+}

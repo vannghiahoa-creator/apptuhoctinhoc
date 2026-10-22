@@ -38,6 +38,7 @@ import {
   loadSavedActiveStudentId,
   saveActiveStudentId,
   fetchStudentsFromGoogleSheet,
+  findOrRegisterStudent,
 } from './utils/googleSheets';
 
 type ActiveTab = 'chat' | 'scratch' | 'safety' | 'computer' | 'teacher';
@@ -144,6 +145,28 @@ export default function App() {
 
   const handleRewardStar = () => {
     setStarCount((s) => s + 1);
+  };
+
+  const [headerCodeInput, setHeaderCodeInput] = useState('');
+
+  const handleHeaderQuickLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const raw = headerCodeInput.trim();
+    if (!raw) {
+      setShowStudentModal(true);
+      return;
+    }
+
+    const res = findOrRegisterStudent(raw, students, grade);
+    if (res) {
+      if (res.isNew) {
+        const updated = res.updatedStudents;
+        setStudents(updated);
+        saveStudents(updated);
+      }
+      handleSelectStudent(res.student);
+      setHeaderCodeInput('');
+    }
   };
 
   const handleSelectStudent = (student: Student | null) => {
@@ -296,35 +319,59 @@ export default function App() {
               </div>
             </button>
 
-            {/* Student Identification Button */}
+            {/* Student Identification & Quick Login */}
             {currentStudent ? (
-              <button
-                onClick={() => {
-                  playClickPop();
-                  setShowStudentModal(true);
-                }}
-                className="flex items-center gap-1.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 text-amber-900 font-black text-xs px-2.5 py-1.5 rounded-xl shadow-2xs hover:border-amber-400 hover:bg-amber-100 transition-all cursor-pointer"
-                title="Học sinh đang đăng nhập - Nhấn để đổi hoặc xem chi tiết"
-              >
+              <div className="flex items-center gap-1.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 text-amber-900 font-black text-xs px-2.5 py-1.5 rounded-xl shadow-2xs">
                 <span>{currentStudent.gender === 'Nữ' ? '👧' : '👦'}</span>
                 <span className="font-mono bg-white px-1.5 py-0.5 rounded text-[10px] text-indigo-700 border border-amber-200">
                   {currentStudent.id}
                 </span>
                 <span className="hidden sm:inline max-w-[90px] truncate">{currentStudent.name}</span>
-              </button>
+                <button
+                  onClick={() => {
+                    playClickPop();
+                    setShowStudentModal(true);
+                  }}
+                  className="text-amber-800 hover:text-amber-950 text-[10px] underline ml-1 cursor-pointer font-bold"
+                  title="Đổi học sinh hoặc xem danh sách"
+                >
+                  Đổi
+                </button>
+              </div>
             ) : (
-              <button
-                onClick={() => {
-                  playClickPop();
-                  setShowStudentModal(true);
-                }}
-                className="flex items-center gap-1.5 bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-300 text-sky-900 font-black text-xs px-2.5 py-1.5 rounded-xl shadow-2xs hover:bg-sky-100 transition-all cursor-pointer"
-                title="Bấm để chọn tên hoặc mã học sinh vào học"
+              <form
+                onSubmit={handleHeaderQuickLogin}
+                className="flex items-center gap-1 bg-white border border-sky-300 focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-200 rounded-xl px-2 py-1 shadow-2xs transition-all"
               >
-                <GraduationCap className="w-3.5 h-3.5 text-sky-600" />
-                <span className="hidden sm:inline">Chọn Tên / Mã HS</span>
-                <span className="bg-sky-500 text-white text-[9px] px-1 py-0.2 rounded font-black uppercase">Vào học</span>
-              </button>
+                <GraduationCap className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                <input
+                  type="text"
+                  value={headerCodeInput}
+                  onChange={(e) => setHeaderCodeInput(e.target.value)}
+                  placeholder="Mã HS..."
+                  className="w-16 sm:w-28 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none bg-transparent"
+                  title="Nhập Mã HS hoặc Tên để vào học"
+                  autoComplete="off"
+                />
+                <button
+                  type="submit"
+                  className="bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-[9px] px-1.5 py-0.5 rounded font-black uppercase cursor-pointer shrink-0"
+                  title="Vào học ngay"
+                >
+                  Vào học
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playClickPop();
+                    setShowStudentModal(true);
+                  }}
+                  className="text-slate-400 hover:text-sky-600 text-xs px-0.5 cursor-pointer shrink-0"
+                  title="Xem danh sách cả lớp hoặc chọn tên"
+                >
+                  📋
+                </button>
+              </form>
             )}
 
             {/* Grade Selector */}
@@ -425,6 +472,12 @@ export default function App() {
             currentStudent={currentStudent}
             onOpenStudentModal={() => setShowStudentModal(true)}
             onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+            students={students}
+            onSelectStudent={handleSelectStudent}
+            onUpdateStudents={(newStudents) => {
+              setStudents(newStudents);
+              saveStudents(newStudents);
+            }}
           />
         )}
 

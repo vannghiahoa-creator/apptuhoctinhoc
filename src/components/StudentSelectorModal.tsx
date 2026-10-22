@@ -31,6 +31,9 @@ import {
   saveSheetConfig,
   parseRawClipboardOrText,
   DEFAULT_STUDENTS_ROSTER,
+  findStudentInRoster,
+  findOrRegisterStudent,
+  removeVietnameseTones,
 } from '../utils/googleSheets';
 
 interface StudentSelectorModalProps {
@@ -97,48 +100,7 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
 
   // Thuật toán tìm kiếm thông minh tuyệt đối không bỏ sót
   const findStudentByCode = (rawInput: string): Student | undefined => {
-    const raw = rawInput.trim();
-    if (!raw) return undefined;
-
-    const term = raw.toLowerCase();
-    const termClean = term.replace(/[^0-9a-z]/g, '');
-    const termDigitsOnly = term.replace(/[^0-9]/g, '');
-    const termNum = termDigitsOnly ? parseInt(termDigitsOnly, 10) : NaN;
-
-    // 1. So khớp chính xác ID (VD: "HS001", "240101")
-    const exactId = students.find((s) => s.id.toLowerCase() === term);
-    if (exactId) return exactId;
-
-    // 2. So khớp ID sạch bỏ dấu cách, gạch nối (VD: "hs-001" -> "hs001")
-    const cleanId = students.find((s) => s.id.toLowerCase().replace(/[^0-9a-z]/g, '') === termClean);
-    if (cleanId) return cleanId;
-
-    // 3. So khớp dạng số thứ tự (VD: gõ "1" hoặc "01" -> khớp "HS001" hoặc "1")
-    if (!isNaN(termNum) && termNum > 0) {
-      const numMatch = students.find((s) => {
-        const sDigits = s.id.replace(/[^0-9]/g, '');
-        if (!sDigits) return false;
-        return parseInt(sDigits, 10) === termNum;
-      });
-      if (numMatch) return numMatch;
-    }
-
-    // 4. So khớp Họ và tên chính xác
-    const exactName = students.find((s) => s.name.toLowerCase() === term);
-    if (exactName) return exactName;
-
-    // 5. So khớp theo tên riêng (VD: gõ "Bảo", "My", "Quân")
-    const matchingByName = students.filter((s) => {
-      const sName = s.name.toLowerCase();
-      const parts = sName.split(' ');
-      const firstName = parts[parts.length - 1];
-      return firstName === term || sName.includes(term);
-    });
-    if (matchingByName.length > 0) {
-      return matchingByName[0];
-    }
-
-    return undefined;
+    return findStudentInRoster(rawInput, students);
   };
 
   // XỬ LÝ NHẬP MÃ HS VÀO HỌC (HOÀN CHỈNH 100% - KHÔNG BAO GIỜ BỊ CHẶN)
@@ -147,46 +109,23 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
     const raw = quickCodeInput.trim();
     if (!raw) return;
 
-    // 1. Tìm học sinh trong danh sách đã có
-    const found = findStudentByCode(raw);
-    if (found) {
-      playSuccessChime();
-      onSelectStudent(found);
+    const res = findOrRegisterStudent(
+      raw,
+      students,
+      (currentStudent?.grade as GradeLevel) || 'Lớp 3'
+    );
+
+    if (res) {
+      if (res.isNew) {
+        if (onUpdateStudents) {
+          onUpdateStudents(res.updatedStudents);
+        }
+        saveStudents(res.updatedStudents);
+      }
+      playVictoryFanfare();
+      onSelectStudent(res.student);
       onClose();
-      return;
     }
-
-    // 2. NẾU MÃ CHƯA CÓ TRONG DANH SÁCH:
-    // Tự động tạo và đăng nhập học sinh ngay lập tức!
-    // Tuyệt đối không báo lỗi, giúp học sinh vào học ngay trong 1 giây!
-    const isOnlyNumber = /^[0-9]+$/.test(raw);
-    let finalId = raw.toUpperCase();
-    if (isOnlyNumber) {
-      finalId = `HS${raw.padStart(3, '0')}`;
-    }
-
-    let finalName = `Học sinh ${finalId}`;
-    if (!isOnlyNumber && !raw.toUpperCase().startsWith('HS')) {
-      finalName = raw; // Học sinh gõ tên mình (VD: "Trần Tuấn Anh")
-    }
-
-    const newStudent: Student = {
-      id: finalId,
-      name: finalName,
-      grade: 'Lớp 3',
-      className: 'Lớp Tin học',
-      stars: 12,
-    };
-
-    const updated = [newStudent, ...students.filter((s) => s.id !== finalId)];
-    if (onUpdateStudents) {
-      onUpdateStudents(updated);
-    }
-    saveStudents(updated);
-
-    playSuccessChime();
-    onSelectStudent(newStudent);
-    onClose();
   };
 
   // Chọn học sinh từ thẻ
@@ -332,9 +271,13 @@ export const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({
       if (!searchTerm.trim()) return true;
 
       const term = searchTerm.toLowerCase().trim();
+      const termNorm = removeVietnameseTones(term);
+      const nameNorm = removeVietnameseTones(s.name);
+
       return (
         s.id.toLowerCase().includes(term) ||
         s.name.toLowerCase().includes(term) ||
+        nameNorm.includes(termNorm) ||
         (s.className && s.className.toLowerCase().includes(term))
       );
     });
