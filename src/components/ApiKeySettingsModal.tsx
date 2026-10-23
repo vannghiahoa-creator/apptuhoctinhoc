@@ -84,58 +84,59 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
             </span>
             <div>
               <h3 className="font-black text-lg text-slate-800 tracking-tight flex items-center gap-2">
-                Thiết Lập Model & API Key Gemini
+                Cài Đặt Model & API Key (Tùy Chọn)
               </h3>
               <p className="text-xs text-slate-500 font-medium">
-                Quản lý khóa API Google AI Studio cá nhân & chọn mô hình AI
+                Ứng dụng chạy trực tiếp không cần API key. Cấu hình khóa riêng nếu muốn.
               </p>
             </div>
           </div>
 
-          {!isRequired && (
-            <button
-              onClick={() => {
-                playClickPop();
-                onClose();
-              }}
-              className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          )}
+          <button
+            onClick={() => {
+              playClickPop();
+              onClose();
+            }}
+            className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+            title="Đóng"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Callout: Instruction link to Google AI Studio */}
-        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="font-black text-amber-900 flex items-center gap-1.5">
-              <span>🔑 Hướng dẫn lấy API Key miễn phí (Google AI Studio):</span>
-            </span>
+        {/* Callout: Thông báo chế độ không cần API key */}
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs space-y-1.5">
+          <div className="flex items-center gap-1.5 font-black text-emerald-900">
+            <Sparkles className="w-4 h-4 text-emerald-600" />
+            <span>✨ Chạy app hoàn toàn không cần khóa API!</span>
+          </div>
+          <p className="text-emerald-800 text-[11px] leading-relaxed font-medium">
+            NUTA đã được trang bị sẵn bộ máy Socratic chuyên sâu cho môn Tin học Tiểu học (Scratch, Bàn phím máy tính, An toàn số). Học sinh và thầy cô có thể dùng ngay mà không cần thiết lập bất kỳ khóa API nào.
+          </p>
+          <div className="pt-1 text-[11px] text-slate-600 border-t border-emerald-200/60">
+            Nếu muốn dùng trực tiếp hạn mức Google AI Studio cá nhân, bạn có thể lấy khóa miễn phí tại{' '}
             <a
               href="https://aistudio.google.com/api-keys"
               target="_blank"
               rel="noreferrer"
-              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
+              className="underline font-bold text-amber-700 hover:text-amber-800 inline-flex items-center gap-0.5"
             >
-              <span>Lấy Key ngay</span>
-              <ExternalLink className="w-3 h-3" />
+              <span>aistudio.google.com/api-keys</span>
+              <ExternalLink className="w-3 h-3 inline" />
             </a>
-          </div>
-          <ol className="list-decimal list-inside text-amber-900 font-medium space-y-0.5 pl-1">
-            <li>Truy cập <a href="https://aistudio.google.com/api-keys" target="_blank" rel="noreferrer" className="underline font-bold">aistudio.google.com/api-keys</a> và đăng nhập Google.</li>
-            <li>Bấm nút <strong>"Create API key"</strong> (Tạo khóa API).</li>
-            <li>Sao chép khóa API và dán vào ô bên dưới.</li>
-          </ol>
-          <div className="text-[11px] text-amber-700 italic">
-            * Khóa được lưu trực tiếp trong trình duyệt (localStorage) của bạn, hoàn toàn bảo mật và không gửi về máy chủ trung gian.
           </div>
         </div>
 
         {/* Input API Key */}
         <div className="space-y-1.5">
-          <label className="text-xs font-black text-slate-700 block">
-            Khóa Gemini API Key của bạn:
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-black text-slate-700 block">
+              Khóa Gemini API Key cá nhân:
+            </label>
+            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+              Không bắt buộc
+            </span>
+          </div>
           <div className="relative">
             <input
               type={showKey ? 'text' : 'password'}
@@ -144,7 +145,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                 setApiKeyInput(e.target.value);
                 setTestResult(null);
               }}
-              placeholder="Dán mã API key bắt đầu bằng AIzaSy..."
+              placeholder="Để trống để dùng chế độ tích hợp sẵn, hoặc dán AIzaSy..."
               className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white pr-20"
             />
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
@@ -248,22 +249,33 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
           <button
             type="button"
             onClick={handleTestKey}
-            disabled={isTesting || !apiKeyInput.trim()}
-            className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 disabled:opacity-40 text-slate-700 font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5"
+            disabled={isTesting}
+            className="px-3.5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 disabled:opacity-40 text-slate-700 font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
-            <span>{isTesting ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}</span>
+            <span>{isTesting ? 'Đang kiểm tra...' : 'Kiểm tra'}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isRequired && !apiKeyInput.trim()}
-            className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-slate-950 font-black text-xs sm:text-sm transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
-          >
-            <Save className="w-4 h-4" />
-            <span>Lưu thiết lập</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                playClickPop();
+                onClose();
+              }}
+              className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 font-bold text-xs cursor-pointer transition-colors"
+            >
+              Đóng
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs sm:text-sm transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
+            >
+              <Save className="w-4 h-4" />
+              <span>Lưu thiết lập</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

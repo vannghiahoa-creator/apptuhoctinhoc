@@ -99,20 +99,39 @@ app.post('/api/chat', async (req, res) => {
     }
 
     if (!process.env.GEMINI_API_KEY) {
-      // Fallback friendly mock response if key is missing in development
+      // Phản hồi Socratic thông minh khi không có khóa API trên server
       const greetingName = studentName ? `Chào bạn ${studentName}! ` : 'Chào bạn nhỏ! ';
+      const lastMsg = (messages[messages.length - 1]?.content || '').toLowerCase();
+      let hint = `Tớ thấy bạn đang tìm hiểu về "${topic}" (${studentClass || grade}). Bạn có nhận ra điểm gì khác biệt khi thử bước này không nhỉ?`;
+      let action = "Bạn hãy thử bấm lại hoặc quan sát kỹ khối lệnh xem sao nhé!";
+      let skillAssessed = topic.includes('Scratch') ? "Tư duy logic" : topic.includes('An toàn') ? "An toàn số" : "Phân tích lỗi";
+
+      if (lastMsg.includes('di chuyển') || lastMsg.includes('không chạy') || lastMsg.includes('đứng yên')) {
+        hint = "Để nhân vật di chuyển, bạn đã kiểm tra xem khối 'di chuyển 10 bước' đã gắn liền với sự kiện cờ xanh chưa?";
+        action = "Hãy kiểm tra lại việc ghép nối khối lệnh trên sân khấu nhé!";
+      } else if (lastMsg.includes('unikey') || lastMsg.includes('tiếng việt') || lastMsg.includes('dấu')) {
+        hint = "Để gõ tiếng Việt có dấu, bạn hãy kiểm tra biểu tượng Unikey ở góc phải màn hình đang là chữ V đỏ hay chữ E xanh nhé!";
+        action = "Nháy chuột vào Unikey hoặc bấm Ctrl + Shift để chuyển sang chữ V!";
+        skillAssessed = "Thao tác máy tính";
+      } else if (lastMsg.includes('mật khẩu') || lastMsg.includes('người lạ') || lastMsg.includes('thông tin')) {
+        hint = "Mật khẩu an toàn cần có cả chữ hoa, chữ thường và chữ số. Tuyệt đối không chia sẻ thông tin cá nhân cho người lạ trên mạng nhé!";
+        action = "Hãy nhớ quy tắc bảo vệ thông tin cá nhân an toàn số!";
+        skillAssessed = "An toàn số";
+      }
+
       return res.json({
         greeting: `${greetingName}NUTA đã sẵn sàng đồng hành cùng bạn rồi đây! 🌟🤖`,
-        hint: `Tớ thấy bạn đang quan sát phần ${topic} (${studentClass || grade}). Bạn có nhận ra điểm gì khác biệt khi thử bước này không nhỉ?`,
-        action: "Bạn hãy thử bấm lại hoặc quan sát kỹ khối lệnh xem sao nhé!",
+        hint,
+        action,
         metadata: {
-          skill_assessed: topic.includes('Scratch') ? "Tư duy logic" : topic.includes('An toàn') ? "An toàn số" : "Phân tích lỗi",
+          skill_assessed: skillAssessed,
           hint_level: hintLevel,
           student_state: "Đang tiến bộ",
           teacher_note: `Học sinh ${studentName || ''} (${studentId || ''}) đang thảo luận chủ đề ${topic} ở mức gợi ý ${hintLevel}.`,
         },
-        transfer: "Nếu hoàn thành thử thách này, bạn có muốn thử tăng tốc độ nhân vật không?",
-        raw: "Fallback mode"
+        transfer: "Nếu hoàn thành thử thách này, bạn có muốn thử tăng tốc độ hoặc mở rộng bài toán không?",
+        raw: hint,
+        usedModel: "NUTA Socratic (Tích hợp sẵn)"
       });
     }
 

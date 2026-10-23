@@ -1,40 +1,35 @@
 # Các quy tắc phát triển và vận hành dự án (AI Instructions)
 
 Tài liệu này ghi lại các quy tắc đã được thống nhất để AI hoặc các nhà phát triển sau này tuân thủ khi chỉnh sửa dự án.
-Tôi đang triển khai ứng dụng từ github qua vercel, hãy kiểm tra giúp tôi các file vercel.json, index.html có tham chiếu đúng chưa và hướng dẫn tôi setup api key gemini để người dùng tự nhập API key của họ để chạy app
 
 ## 1. Cấu hình Model AI & Cơ chế Fallback
-- **Model mặc định**: `gemini-3-pro-preview`
+- **Model mặc định**: `gemini-3-flash-preview`
 - **Model dự phòng**: Tự động chuyển đổi nếu model hiện tại gặp lỗi/quá tải:
   1. `gemini-3-flash-preview`
   2. `gemini-3-pro-preview`
   3. `gemini-2.5-flash`
-- **Cơ chế Retry**:
-  - Nếu một bước xử lý (Step 1, 2, hoặc 3) gặp lỗi API, hệ thống **tự động** thử lại ngay lập tức với model tiếp theo trong danh sách.
-  - Vẫn giữ nguyên kết quả của các bước trước đó, chỉ retry bước đang lỗi.
+- **Cơ chế Retry & Tích hợp**:
+  - Nếu có API key và một model gặp sự cố, hệ thống **tự động** chuyển đổi sang model tiếp theo trong danh sách.
+  - Nếu không có API key hoặc kết nối bị gián đoạn, hệ thống **tự động kích hoạt bộ máy Socratic thông minh tích hợp sẵn**, đảm bảo học sinh và giáo viên không bao giờ bị dừng gián đoạn tiết học.
 
-## 2. Quản lý API Key
+## 2. Quản lý API Key (Tùy chọn - Không bắt buộc)
 - **Cơ chế**:
-  - Người dùng nhập API key vào Modal hoặc qua nút Settings trên Header.
-  - Lưu vào `localStorage` của trình duyệt.
-  - Ưu tiên sử dụng key từ `localStorage`.
+  - Khóa API là **tùy chọn (Optional)**: Khi khởi động ứng dụng, **không** bắt buộc và **không** tự động bật Modal đòi hỏi API key.
+  - Ứng dụng tích hợp sẵn bộ máy Socratic chuyên sâu cho môn Tin học Tiểu học (Lập trình Scratch, Thao tác máy tính, An toàn số), cho phép mở app là học tập và tương tác được ngay lập tức 100%.
+  - Nếu người dùng muốn sử dụng tài khoản Google Gemini cá nhân riêng với hạn mức cao hơn, họ có thể nhấn nút "Cài đặt AI" trên thanh Header để nhập API key từ Google AI Studio (`aistudio.google.com/api-keys`).
+  - Key được lưu trong `localStorage` của trình duyệt.
 - **Giao diện**:
-  - **Thiết lập Model & API Key**: Cần hiển thị như hình mẫu.
-    - Hiển thị danh sách chọn Model AI (dạng thẻ/Cards).
-    - Thứ tự hiển thị: `gemini-3-flash-preview` (Default), `gemini-3-pro-preview`, `gemini-2.5-flash`.
-  - Nút **Settings (API Key)** kèm dòng chữ màu đỏ "Lấy API key để sử dụng app" phải luôn hiển thị trên Header để người dùng dễ dàng thay đổi key khi hết quota. 
-  - Khi chưa có key, hiển thị Modal bắt buộc nhập.
-  - Việc nhập key ban đầu trước khi dùng app, hướng dẫn người dùng vào https://aistudio.google.com/api-keys để lấy key API
+  - Nút **"Cài đặt AI"** trên thanh Header hiển thị với nhãn phụ "API Key (Tùy chọn)", không hiển thị thông báo cảnh báo màu đỏ hay ép buộc người dùng.
+  - Modal Cài đặt AI luôn có nút đóng (X) và nút "Đóng", người dùng có thể đóng bất kỳ lúc nào mà không cần nhập key.
+  - Cho phép người dùng xóa key hoặc lưu trống để quay về chế độ trợ lý tích hợp sẵn.
 
 ## 3. Quản lý Trạng thái & Lỗi (State Management)
-- **Hiển thị lỗi**:
-  - Nếu tất cả các model đều thất bại -> Hiện thông báo lỗi màu đỏ, hiển thị nguyên văn lỗi từ API (VD: `429 RESOURCE_EXHAUSTED`).
-  - Trạng thái các cột đang chờ phải chuyển thành **"Đã dừng do lỗi"**, tuyệt đối không được hiện "Hoàn tất" hoặc checkmark xanh nếu quy trình bị gián đoạn.
 - **Tiến trình**:
-  - Progress bar chỉ hiển thị trạng thái hoàn thành (xanh) khi bước đó thực sự thành công.
+  - Phản hồi từ trợ lý Socratic tích hợp đầy đủ 4 phần: Lời chào (Greeting), Gợi ý (Hint), Hành động (Action), và Ghi chú sư phạm (Metadata).
+  - Progress bar và các bước tư duy (Hỏi → Nghĩ → Dự đoán → Thử → Kiểm chứng → Giải thích) vận hành mượt mà, ghi nhận dữ liệu đánh giá năng lực học sinh đầy đủ.
 
 ## 4. Triển khai (Deployment)
-- **Nền tảng**: Vercel.
+- **Nền tảng**: Vercel / Web SPA.
 - **File bắt buộc**: `vercel.json` ở root để xử lý SPA routing.
   ```json
   {

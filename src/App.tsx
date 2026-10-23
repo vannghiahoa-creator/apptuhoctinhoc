@@ -130,12 +130,6 @@ export default function App() {
   const [isSyncingSheet, setIsSyncingSheet] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
-  useEffect(() => {
-    if (!getStoredApiKey()) {
-      setShowApiKeyModal(true);
-    }
-  }, []);
-
   const toggleSound = () => {
     const next = !soundOn;
     setSoundOn(next);
@@ -303,19 +297,19 @@ export default function App() {
 
           {/* Right Controls: Student, Grade selector, Stars, Sound, Guide */}
           <div className="flex items-center gap-2">
-            {/* API Key Settings Button (Theo AI_INSTRUCTIONS.md) */}
+            {/* AI Settings Button (Tùy chọn) */}
             <button
               onClick={() => {
                 playClickPop();
                 setShowApiKeyModal(true);
               }}
-              className="flex items-center gap-1.5 bg-gradient-to-r from-rose-50 via-amber-50 to-orange-50 hover:from-rose-100 hover:to-amber-100 border border-rose-300 text-slate-800 px-2.5 py-1.5 rounded-xl shadow-2xs transition-all cursor-pointer group"
-              title="Cài đặt Model & API Key Google Gemini (Lưu trữ trên trình duyệt)"
+              className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 px-2.5 py-1.5 rounded-xl shadow-2xs transition-all cursor-pointer group"
+              title="Cài đặt Mô hình AI & Khóa API Gemini (Tùy chọn)"
             >
-              <Key className="w-3.5 h-3.5 text-rose-600 group-hover:rotate-12 transition-transform shrink-0" />
+              <Key className="w-3.5 h-3.5 text-amber-500 group-hover:rotate-12 transition-transform shrink-0" />
               <div className="flex flex-col items-start leading-none text-left">
-                <span className="text-[11px] font-black text-slate-700">Cài đặt API</span>
-                <span className="text-[9px] font-black text-rose-600 tracking-tight">Lấy API key để sử dụng app</span>
+                <span className="text-[11px] font-black text-slate-700">Cài đặt AI</span>
+                <span className="text-[9px] font-bold text-slate-400 tracking-tight">API Key (Tùy chọn)</span>
               </div>
             </button>
 
@@ -550,11 +544,11 @@ export default function App() {
         }}
       />
 
-      {/* API Key & Model Settings Modal (Theo AI_INSTRUCTIONS.md) */}
+      {/* API Key & Model Settings Modal (Tùy chọn) */}
       <ApiKeySettingsModal
         isOpen={showApiKeyModal}
         onClose={() => setShowApiKeyModal(false)}
-        isRequired={!getStoredApiKey()}
+        isRequired={false}
       />
 
       {/* Info & Pedagogical Socratic Modal */}

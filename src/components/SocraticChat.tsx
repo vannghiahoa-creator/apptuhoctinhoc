@@ -239,11 +239,40 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
           },
         });
       } else {
-        // Ưu tiên 2: Thử gọi backend server nội bộ (Local dev hoặc Node proxy)
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        // Ưu tiên 2: Không cần API key -> Thử backend server nội bộ nếu có, hoặc dùng ngay trợ lý tích hợp sẵn
+        let serverHandled = false;
+        try {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: newMessages.map((m) => ({
+                role: m.role,
+                content: m.content,
+                image: m.image,
+              })),
+              grade,
+              topic,
+              hintLevel,
+              currentStep: SOCRATIC_STEPS[currentStepIndex].step,
+              studentName: currentStudent?.name,
+              studentId: currentStudent?.id,
+              studentClass: currentStudent?.className || grade,
+            }),
+          });
+          if (response.ok) {
+            const serverData = await response.json();
+            if (serverData && (serverData.hint || serverData.greeting)) {
+              data = serverData;
+              serverHandled = true;
+            }
+          }
+        } catch {
+          // Bỏ qua lỗi server để chuyển sang fallback tích hợp sẵn
+        }
+
+        if (!serverHandled) {
+          data = await callGeminiWithFallback({
             messages: newMessages.map((m) => ({
               role: m.role,
               content: m.content,
@@ -256,16 +285,8 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
             studentName: currentStudent?.name,
             studentId: currentStudent?.id,
             studentClass: currentStudent?.className || grade,
-          }),
-        });
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => null);
-          const errMsg = errData?.error || `HTTP ${response.status} ${response.statusText}`;
-          throw new Error(errMsg || 'CHUA_CO_API_KEY');
+          });
         }
-
-        data = await response.json();
       }
 
       const botMessage: ChatMessage = {
@@ -308,23 +329,16 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
       console.error('Lỗi khi trò chuyện cùng NUTA:', err);
       setStepError(true);
       const rawErrMsg = err?.message || 'Lỗi không xác định khi kết nối với AI';
-      const isMissingKey = rawErrMsg === 'CHUA_CO_API_KEY' || !getStoredApiKey();
 
       setMessages((prev) => [
         ...prev,
         {
           id: `bot-err-${Date.now()}`,
           role: 'assistant',
-          content: isMissingKey
-            ? 'Bạn ơi, ứng dụng cần API Key Google Gemini để NUTA có thể trò chuyện và hỗ trợ bạn.'
-            : 'Đã dừng do lỗi kết nối hoặc vượt hạn mức API.',
-          greeting: isMissingKey
-            ? 'Chưa thiết lập API Key Google AI Studio 🔑'
-            : 'Đã dừng do lỗi kết nối API ⚠️',
-          hint: isMissingKey
-            ? 'Vui lòng nhấn nút "Cài đặt API Key" bên dưới hoặc trên thanh Header để nhập API Key từ Google AI Studio nhé!'
-            : `Hệ thống đã thử các model nhưng đều thất bại. Chi tiết lỗi: ${rawErrMsg}`,
-          action: isMissingKey ? 'Nhấn vào nút "Cài đặt API Key" để bắt đầu!' : 'Bạn hãy kiểm tra lại kết nối mạng hoặc đổi API Key khác nhé!',
+          content: 'Đã dừng do sự cố kết nối. Bạn có thể nhấn thử gửi lại nhé!',
+          greeting: 'Tạm gián đoạn kết nối ⚠️',
+          hint: `Hệ thống gặp sự cố kết nối: ${rawErrMsg}`,
+          action: 'Bạn hãy kiểm tra lại kết nối mạng hoặc bấm "Thử gửi lại" nhé!',
           isError: true,
           errorMessage: rawErrMsg,
           timestamp: Date.now(),
@@ -527,7 +541,7 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
                   }}
                   className="underline text-rose-800 hover:text-rose-950 font-black cursor-pointer"
                 >
-                  Đổi API Key ngay 🔑
+                  Cài đặt AI (Tùy chọn) 🔑
                 </button>
               )}
             </div>
@@ -603,7 +617,7 @@ export const SocraticChat: React.FC<SocraticChatProps> = ({
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition-colors shadow-2xs cursor-pointer"
                     >
                       <Key className="w-3.5 h-3.5" />
-                      <span>Cài đặt / Đổi API Key</span>
+                      <span>Cài đặt AI (Tùy chọn)</span>
                     </button>
                   )}
                   <button
